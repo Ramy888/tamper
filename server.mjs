@@ -16,17 +16,21 @@ let pending = new Map();
 function fakePatcherLLM() {
   return fakeLLM((system, user) => {
     if (!system.includes("Patcher")) return "The shop decides an order is paid at fulfill() and in its webhook; both trust the client, not PayPal's records.";
-    if (user.includes("client-reported amount")) return "At fulfillment, call getCapture and ship only for the amount PayPal actually captured.";
-    if (user.includes("browser's say-so")) return "Before shipping, call getOrder and require status COMPLETED — never trust a browser redirect.";
-    if (user.includes("verify-webhook-signature")) return "Call verify-webhook-signature on every event and drop anything that isn't SUCCESS.";
-    return "Dedupe on the capture id so a replayed event credits the balance only once.";
+    const flag = /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
+    const fix = {
+      verifyBeforeShip: "Call getOrder/getCapture and ship only for the amount PayPal actually captured.",
+      verifyWebhookSig: "Call verify-webhook-signature on every event and drop anything that isn't SUCCESS.",
+      dedupeCaptures: "Dedupe on the capture id so a replayed event credits the balance only once.",
+    }[flag];
+    return JSON.stringify({ flag, fix });
   });
 }
 
-async function runStream(res, { liveLLM }) {
+async function runStream(res, { liveLLM, denied }) {
   res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
   const send = (e) => res.write(`data: ${JSON.stringify(e)}\n\n`);
   pending = new Map();
+  if (denied) send({ agent: "engine", phase: "notice", note: denied });
   try {
     const out = await runAudit({
       llm: liveLLM ? makeLLM() : fakePatcherLLM(),
@@ -51,7 +55,16 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     return res.end(html);
   }
-  if (url.pathname === "/run") return runStream(res, { liveLLM: url.searchParams.get("llm") === "live" });
+  if (url.pathname === "/run") {
+    // Live Claude spends the owner's key, so it is gated: only with the passcode (?key= or
+    // X-Tamper-Key). Without it the audit still runs fully with the faked Patcher — no spend.
+    const wantsLive = url.searchParams.get("llm") === "live";
+    const passcode = process.env.TAMPER_PASSCODE;
+    const supplied = url.searchParams.get("key") || req.headers["x-tamper-key"];
+    const liveLLM = wantsLive && !!passcode && supplied === passcode;
+    if (wantsLive && !liveLLM) return runStream(res, { liveLLM: false, denied: "live Claude needs the owner passcode; ran with no-spend auditor instead" });
+    return runStream(res, { liveLLM });
+  }
   if (url.pathname === "/approve" && req.method === "POST") {
     const check = url.searchParams.get("check");
     const ok = url.searchParams.get("ok") === "1";

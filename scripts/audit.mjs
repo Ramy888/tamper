@@ -7,11 +7,11 @@ import { fakeLLM, makeLLM } from "../lib/llm.mjs";
 const liveLLM = process.argv.includes("--live-llm");
 const llm = liveLLM
   ? makeLLM()
-  : fakeLLM((system) =>
-      system.includes("Patcher")
-        ? "Read the order/capture back from PayPal (getOrder/getCapture) and verify-webhook-signature before trusting any amount or event."
-        : "The shop decides an order is paid at fulfill() and in its webhook, and both trust the client instead of PayPal's records.",
-    );
+  : fakeLLM((system, user) => {
+      if (!system.includes("Patcher")) return "The shop decides an order is paid at fulfill() and in its webhook, and both trust the client instead of PayPal's records.";
+      const flag = /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
+      return JSON.stringify({ flag, fix: "apply " + flag });
+    });
 
 const icon = { recon: "🔎", auditor: "🧪", judge: "⚖️", patcher: "🔧", verifier: "✅", engine: "📊" };
 const out = await runAudit({

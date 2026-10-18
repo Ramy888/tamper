@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CHECKS } from "../lib/checks.mjs";
-import { makeWeakShop } from "../shop/weak-shop.mjs";
-import { makeSecureShop } from "../shop/secure-shop.mjs";
+import { makeWeakShop } from "../shop/shop.mjs";
+import { makeSecureShop } from "../shop/shop.mjs";
 import { makeFakePayPal } from "./helpers/fake-paypal.mjs";
 
 const CARD = { number: "4111111111111111", expiry: "2030-12", security_code: "123" };

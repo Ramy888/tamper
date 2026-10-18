@@ -93,6 +93,9 @@
         color: var(--mut); background: var(--surface-2); border: 1px solid var(--line);
       }
       .model[data-live="true"] { color: var(--green); background: var(--green-soft); border-color: transparent; }
+      .judge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 680; padding: 4px 10px; border-radius: 999px; color: var(--violet); background: color-mix(in srgb, var(--violet) 13%, transparent); border: 1px solid color-mix(in srgb, var(--violet) 35%, transparent); }
+      .judge svg { width: 13px; height: 13px; }
+      .judge[data-ok="false"] { color: var(--red); background: var(--red-soft); border-color: transparent; }
       .status { margin: 0; color: var(--mut); font-size: 14px; flex: 1 1 280px; min-width: 0; }
 
       /* ---- panels ---- */
@@ -266,6 +269,7 @@
       <section class="controls">
         <button class="run" id="run" type="button">Run audit on the demo shop</button>
         <label class="toggle"><input type="checkbox" id="live" /> <span>Live AI</span> <small>owner passcode</small></label>
+        <span class="judge" id="judge" hidden></span>
         <span class="model" id="model" hidden></span>
         <p class="status" id="status">Idle. Every finding is proven against PayPal's own sandbox records.</p>
       </section>
@@ -530,16 +534,32 @@
         if (!live && $("#live").checked) {
           $("#live").checked = false;
           ownerUnlocked = false;
-          modelNote = "Live AI needs the owner passcode, so this run uses the no-spend model.";
+          modelNote = "Live AI is off for this run, so it uses the no-spend model.";
           setStatus("Auditing… real PayPal sandbox calls in flight.");
         }
       }
 
       // ---- live AI: ticking the box asks for the owner passcode, unless this browser is unlocked ----
       const pass = $("#pass"), passInput = $("#pass-input"), passError = $("#pass-error");
-      let ownerUnlocked = false;
+      let ownerUnlocked = false, judgeAccess = false;
+
+      // Judges open the page with the demo code (?code=): a right one shows judge access and ticks
+      // live AI, which then runs on the real model within the judges' hourly live budget.
+      const demoCode = new URLSearchParams(location.search).get("code");
+      if (demoCode) {
+        fetch("/api/judge?code=" + encodeURIComponent(demoCode)).then((r) => {
+          const badge = $("#judge");
+          judgeAccess = r.status === 204;
+          badge.hidden = false; badge.dataset.ok = String(judgeAccess);
+          badge.innerHTML = judgeAccess
+            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.6-3.4 8.4-8 9-4.6-.6-8-4.4-8-9V6z" /><path d="M8.6 12.2l2.4 2.4 4.6-4.8" /></svg>Judge access · live AI on · no hourly limit`
+            : "This demo code isn't valid";
+          if (judgeAccess) $("#live").checked = true;
+        }).catch(() => {});
+      }
+
       $("#live").addEventListener("change", async () => {
-        if (!$("#live").checked || ownerUnlocked) return;
+        if (!$("#live").checked || ownerUnlocked || judgeAccess) return;
         try { ownerUnlocked = (await fetch("/api/owner")).status === 204; } catch {}
         if (ownerUnlocked) return;
         passInput.value = ""; passError.textContent = "";
@@ -610,7 +630,11 @@
       function handle(e, es) {
         const { agent, phase } = e;
         if (phase === "token") { runToken = e.token; showModel(e.model); return; }
-        if (agent === "engine" && phase === "notice") return line("engine", `<span class="proof">${esc(e.note)}</span>`);
+        if (agent === "engine" && phase === "notice") {
+          // The exact reason live AI is off (no passcode, or the judges' hourly budget is used up).
+          if (modelNote) { modelNote = cap(e.note) + "."; setStatus("Auditing… real PayPal sandbox calls in flight."); }
+          return line("engine", `<span class="proof">${esc(e.note)}</span>`);
+        }
         if (agent === "recon" && phase === "start") { setAgent("recon", "working", "Reading the shop's source…"); return pulseIn("recon"); }
         if (agent === "recon" && phase === "done") { setAgent("recon", "done", "Mapped where the shop decides it's paid"); line("recon", esc(e.note)); return pulseIn("recon"); }
         if (agent === "auditor" && phase === "run") {

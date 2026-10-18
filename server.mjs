@@ -20,6 +20,7 @@ const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 const OWNER_COOKIE = "tamper_owner";
 const OWNER_SESSION_MS = 12 * 60 * 60_000;
 const MAX_OWNER_SESSIONS = 50;
+const NO_SPEND = "ran with the no-spend model instead";
 
 const duration = (ms) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
 
@@ -91,6 +92,10 @@ export function createTamperServer({
   limiter = makeRateLimit(),
   // The passcode unlocks spending the owner's key, so guesses are limited per visitor.
   ownerLimiter = makeRateLimit({ perClient: 5, global: 100, windowMs: 15 * 60_000 }),
+  // Judges' live-AI runs spend the owner's key (about 5 model calls each), so a shared demo link
+  // gets an hourly budget: per judge and across all judges.
+  judgeLiveLimiter = makeRateLimit({ perClient: 4, global: 12, windowMs: 60 * 60_000 }),
+  makeLiveLLM = makeLLM,
   approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
 } = {}) {
   const state = { inboxLive: false };
@@ -148,7 +153,7 @@ export function createTamperServer({
     try {
       const out = await runAudit({
         pp,
-        llm: liveLLM ? makeLLM() : fakePatcherLLM(),
+        llm: liveLLM ? makeLiveLLM() : fakePatcherLLM(),
         inbox: (await refreshInbox()) ? inbox : undefined,
         emit: send,
         // A reviewer who hasn't decided within the timeout is treated as gone, so an idle tab
@@ -223,13 +228,18 @@ export function createTamperServer({
         return res.end();
       }
     }
+    if (url.pathname === "/api/judge" && req.method === "GET") {
+      // Lets the dashboard show judge access (and tick live AI) before anything runs.
+      res.writeHead(matches(url.searchParams.get("code"), process.env.TAMPER_DEMO_CODE) ? 204 : 401);
+      return res.end();
+    }
     if (url.pathname === "/run") {
       // Live AI spends the owner's key, so it is gated: only for the owner (the passcode in the
       // request, or a session from the dashboard's passcode dialog). Without it the audit still
       // runs fully with the no-spend model.
       // Each run creates sandbox orders, so visitors share an hourly budget; the owner doesn't.
       // Judges get their own demo code (?code=): it lifts the budget so a judging session can't
-      // run out, and never turns on live AI.
+      // run out, and turns on live AI within the judges' hourly live budget.
       const owner = isOwner(req, url);
       const judge = matches(url.searchParams.get("code"), process.env.TAMPER_DEMO_CODE);
       const wantsLive = url.searchParams.get("llm") === "live";
@@ -241,8 +251,13 @@ export function createTamperServer({
         const t = limiter.take(key);
         if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
       }
-      const liveLLM = wantsLive && owner;
-      return runStream(res, { liveLLM, denied: wantsLive && !liveLLM ? "live AI needs the owner passcode; ran with the no-spend model instead" : undefined });
+      let liveLLM = wantsLive && owner, denied;
+      if (wantsLive && !owner && judge) {
+        if (judgeLiveLimiter.take(clientKey(req)).ok) liveLLM = true;
+        else denied = `the judges' live-AI budget for this hour is used up; ${NO_SPEND}`;
+      }
+      if (wantsLive && !liveLLM && !denied) denied = `live AI needs the owner passcode or the judges' demo code; ${NO_SPEND}`;
+      return runStream(res, { liveLLM, denied });
     }
     if (url.pathname === "/approve" && req.method === "POST") {
       const check = url.searchParams.get("check");

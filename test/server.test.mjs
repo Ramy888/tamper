@@ -4,6 +4,7 @@ import net from "node:net";
 import { createTamperServer } from "../server.mjs";
 import { MAX_BODY } from "../lib/inbox.mjs";
 import { makeFakePayPal } from "./helpers/fake-paypal.mjs";
+import { fakeLLM } from "../lib/llm.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -164,34 +165,6 @@ test("a run announces its model: asking for live Claude without the passcode get
   );
 });
 
-test("a judge's demo code is not limited, but it never turns on live Claude", async () => {
-  process.env.TAMPER_PASSCODE = "owner-pass";
-  try {
-    await withServer(
-      async (base) => {
-        assert.equal((await fetch(`${base}/run?code=`)).status, 429, "with no demo code set, an empty one is limited");
-        process.env.TAMPER_DEMO_CODE = "judge-code";
-        assert.equal((await fetch(`${base}/run?code=wrong-code`)).status, 429);
-        const judge = await fetch(`${base}/run?code=judge-code&llm=live`);
-        assert.equal(judge.status, 200);
-        const reader = judge.body.getReader();
-        const dec = new TextDecoder();
-        let buf = "";
-        while (!/"phase":"notice"/.test(buf)) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buf += dec.decode(value, { stream: true });
-        }
-        assert.match(buf, /live AI needs the owner passcode/);
-        await reader.cancel();
-      },
-      { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) } },
-    );
-  } finally {
-    delete process.env.TAMPER_DEMO_CODE;
-  }
-});
-
 // Reads a run's first event (the token), then hangs up.
 async function firstEvent(res) {
   const reader = res.body.getReader();
@@ -200,6 +173,73 @@ async function firstEvent(res) {
   return JSON.parse(new TextDecoder().decode(value).match(/^data: (.*)$/m)[1]);
 }
 const unlock = (base, passcode) => fetch(`${base}/api/owner`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) });
+
+// A live model that is really a fake: proves which model a run picked without ever spending.
+function countingLiveLLM() {
+  const made = { n: 0 };
+  return { made, makeLiveLLM: () => (made.n++, fakeLLM(() => '{"flag":"dedupeCaptures","fix":"fake"}')) };
+}
+
+test("a judge's demo code lifts the hourly limit and runs live AI, within the judges' live budget", async () => {
+  process.env.TAMPER_PASSCODE = "owner-pass";
+  const { made, makeLiveLLM } = countingLiveLLM();
+  try {
+    await withServer(
+      async (base) => {
+        assert.equal((await fetch(`${base}/run?code=`)).status, 429, "with no demo code set, an empty one is limited");
+        process.env.TAMPER_DEMO_CODE = "judge-code";
+        assert.equal((await fetch(`${base}/run?code=wrong-code`)).status, 429);
+        const judge = await fetch(`${base}/run?code=judge-code&llm=live`);
+        assert.equal(judge.status, 200);
+        assert.equal((await firstEvent(judge)).model, "live");
+        assert.equal(made.n, 1, "the run was built on the live model");
+      },
+      { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) }, makeLiveLLM },
+    );
+  } finally {
+    delete process.env.TAMPER_DEMO_CODE;
+  }
+});
+
+test("once the judges' live budget is used up, a judge's run falls back to the no-spend model and says why", async () => {
+  process.env.TAMPER_DEMO_CODE = "judge-code";
+  const { made, makeLiveLLM } = countingLiveLLM();
+  try {
+    await withServer(
+      async (base) => {
+        const res = await fetch(`${base}/run?code=judge-code&llm=live`);
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (!/"phase":"notice"/.test(buf)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+        }
+        await reader.cancel();
+        assert.match(buf, /"model":"no-spend"/);
+        assert.match(buf, /judges' live-AI budget for this hour is used up/);
+        assert.equal(made.n, 0, "no live model was built");
+      },
+      { pp: makeFakePayPal(), judgeLiveLimiter: { take: () => ({ ok: false, retryAfterSec: 900 }) }, makeLiveLLM },
+    );
+  } finally {
+    delete process.env.TAMPER_DEMO_CODE;
+  }
+});
+
+test("the page can check a demo code before running anything", async () => {
+  try {
+    await withServer(async (base) => {
+      assert.equal((await fetch(`${base}/api/judge?code=`)).status, 401, "no demo code set: nothing matches");
+      process.env.TAMPER_DEMO_CODE = "judge-code";
+      assert.equal((await fetch(`${base}/api/judge?code=judge-code`)).status, 204);
+      assert.equal((await fetch(`${base}/api/judge?code=judge-codf`)).status, 401);
+    });
+  } finally {
+    delete process.env.TAMPER_DEMO_CODE;
+  }
+});
 
 test("the passcode dialog unlocks this browser as the owner through an HttpOnly cookie", async () => {
   process.env.TAMPER_PASSCODE = "owner-pass";

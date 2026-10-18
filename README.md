@@ -13,7 +13,9 @@ a demo shop that you own.
 **Live demo:** https://tamper-demo.onrender.com (PayPal sandbox only; the first visit after a quiet
 spell can take up to a minute while the free instance wakes). Each audit creates sandbox orders,
 so visitors get 5 runs an hour each and 30 an hour in total. Judges get a demo code (in the
-submission's testing instructions) that lifts this limit; it never turns on live Claude. A fix
+submission's testing instructions): opening the page with it lifts this limit and ticks Live AI,
+which runs on the real model within a judges' budget of 4 live runs per judge and 12 in total per
+hour (then the no-spend model, and the page says so). A fix
 nobody approves within 5 minutes is rejected, so an idle tab can't hold the single audit slot.
 
 ## The agents
@@ -70,8 +72,9 @@ model, so the whole audit (including every PayPal proof) works without an Anthro
 AI runs only for the owner. On the dashboard, ticking **Live AI** asks for `TAMPER_PASSCODE`; a
 right passcode starts a 12-hour session in that browser (an HttpOnly cookie, so the passcode never
 goes in a URL), and each visitor gets 5 tries per 15 minutes. Scripts can send the passcode with
-the request instead (`?key=` or the `X-Tamper-Key` header). Without it a run falls back to the
-no-spend model and the dashboard says so, so a public deployment can't spend the key.
+the request instead (`?key=` or the `X-Tamper-Key` header). Judges' live runs come from their demo
+code and its hourly budget (above). Anyone else's run falls back to the no-spend model and the
+dashboard says so, so the public page alone can't spend the key.
 
 ## Layout
 

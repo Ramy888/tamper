@@ -182,7 +182,7 @@ test("a judge's demo code is not limited, but it never turns on live Claude", as
           if (done) break;
           buf += dec.decode(value, { stream: true });
         }
-        assert.match(buf, /live Claude needs the owner passcode/);
+        assert.match(buf, /live AI needs the owner passcode/);
         await reader.cancel();
       },
       { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) } },

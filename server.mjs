@@ -190,7 +190,7 @@ export function createTamperServer({
         if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
       }
       const liveLLM = wantsLive && owner;
-      return runStream(res, { liveLLM, denied: wantsLive && !liveLLM ? "live Claude needs the owner passcode; ran with no-spend auditor instead" : undefined });
+      return runStream(res, { liveLLM, denied: wantsLive && !liveLLM ? "live AI needs the owner passcode; ran with the no-spend model instead" : undefined });
     }
     if (url.pathname === "/approve" && req.method === "POST") {
       const check = url.searchParams.get("check");

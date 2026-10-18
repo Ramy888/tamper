@@ -7,7 +7,7 @@
 //
 // The owner passcode (TAMPER_PASSCODE) goes in a request header, only to <baseUrl>, so the demo
 // budget never runs out mid-take; it is never put in a URL or on screen. "live" ticks the
-// dashboard's live-Claude box (5 model calls); without it the no-spend model runs.
+// dashboard's live-AI box (5 model calls); without it the no-spend model runs.
 //
 // The dashboard's event stream is buffered in the page and released one event at a time, so each
 // step stays on screen long enough to read. Order and content are exactly what the server sent;
@@ -128,14 +128,14 @@ await hover(".agent[data-a=recon]"); await sleep(1400);
 await hover(".agent[data-a=judge]"); await sleep(1600);
 await hover(".agent[data-a=verifier]"); await sleep(1500);
 if (LIVE) {
-  await caption("Recon and the Patcher run on Claude");
+  await caption("Recon and the Patcher run on a live AI model");
   await clickSel("#live"); await sleep(2200);
 }
 await caption("The target: a demo shop with four common checkout mistakes. Waiting time is cut from this video");
 await clickSel("#run"); await sleep(1800);
 
 // ---------- the audit, paced one event at a time ----------
-const claude = LIVE ? " (Claude)" : "";
+const claude = LIVE ? " (AI)" : "";
 const JUDGE = {
   amount_mismatch: "The Judge uses no AI. It reads PayPal's own capture: the shop shipped more than PayPal captured",
   browser_trusted_paid: "Marked paid on the browser's word. PayPal says the order was never captured",

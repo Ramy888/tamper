@@ -10,6 +10,11 @@ to prove the fix holds.
 Tamper moves no money of its own. It only reads PayPal's records and drives sandbox orders on
 a demo shop that you own.
 
+**Live demo:** https://tamper-demo.onrender.com (PayPal sandbox only; the first visit after a quiet
+spell can take up to a minute while the free instance wakes). Each audit creates sandbox orders,
+so visitors get 5 runs an hour each and 30 an hour in total. A fix nobody approves within 5
+minutes is rejected, so an idle tab can't hold the single audit slot.
+
 ## The agents
 
 | Agent | Job | Uses AI? |

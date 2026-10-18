@@ -106,16 +106,25 @@
           const e = JSON.parse(m.data); lit(e.agent);
           if (e.agent === "recon" && e.phase === "done") line("recon", esc(e.note));
           else if (e.agent === "auditor" && e.phase === "run") line("auditor", "probing: " + esc(e.title));
+          else if (e.phase === "note") line(e.agent, `<span class="proof">${esc(e.note)}</span>`);
+          else if (e.agent === "engine" && e.phase === "notice") line("engine", `<span class="proof">${esc(e.note)}</span>`);
           else if (e.agent === "judge" && e.phase === "verdict") {
             const v = e.confirmed ? `<span class="vuln">VULNERABLE</span>` : `<span class="ok">ok</span>`;
             line("judge", `${v} ${esc(e.check)} — shop ${esc(e.shopBelief)}; <b>${esc(e.truth)}</b>`);
             if (e.confirmed) addFinding(e);
           } else if (e.agent === "patcher" && e.phase === "awaiting-approval") askApproval(e);
+          else if (e.agent === "patcher" && e.phase === "rejected") { dropApproval(e.check); line("patcher", esc(e.check) + ": <span class='vuln'>fix rejected by reviewer</span>"); }
           else if (e.agent === "verifier") markVerified(e);
           else if (e.agent === "engine" && e.phase === "complete") { finish(e.scorecard); es.close(); }
           else if (e.agent === "engine" && e.phase === "error") { $("#status").textContent = "Error: " + e.error; $("#run").disabled = false; es.close(); }
         };
-        es.onerror = () => { $("#run").disabled = false; es.close(); };
+        // EventSource can't read the status code; a refusal before any event means another audit holds the slot.
+        let got = false;
+        es.addEventListener("message", () => (got = true));
+        es.onerror = () => {
+          if (!got) $("#status").textContent = "Couldn't start: another audit is already running. Try again when it finishes.";
+          $("#run").disabled = false; es.close();
+        };
       };
 
       function addFinding(e) {
@@ -141,16 +150,20 @@
         box.remove();
         fetch(`/approve?check=${encodeURIComponent(check)}&ok=${ok}`, { method: "POST" });
       }
+      // A decision can also arrive from elsewhere (another tab, the API): once the engine moves
+      // past a check, its buttons go.
+      function dropApproval(check) { $("#f-" + check + " .approve")?.remove(); }
       function markVerified(e) {
         const d = $("#f-" + e.check);
-        if (e.phase === "pending") { line("verifier", esc(e.check) + ": <span class='proof'>pending — needs a real PayPal-signed event</span>"); return; }
+        dropApproval(e.check);
+        if (e.phase === "pending") { line("verifier", esc(e.check) + ": <span class='proof'>pending — " + esc(e.reason) + "</span>"); return; }
         line("verifier", esc(e.check) + ": fix holds = " + (e.fixHolds ? `<span class="ok">yes</span>` : `<span class="vuln">no</span>`));
         if (d && e.fixHolds) d.classList.add("fixed");
       }
       function finish(s) {
         $("#s-found").textContent = s.found; $("#s-fixed").textContent = s.fixesVerified;
         $("#s-pending").textContent = s.pending; $("#s-vuln").textContent = s.stillVulnerableAfterPatch;
-        $("#status").textContent = `Done. ${s.found} issues found, each proven by PayPal; ${s.fixesVerified} fixes verified.`;
+        $("#status").textContent = `Done. ${s.found} issues found, each proven by PayPal; ${s.fixesVerified} fixes verified` + (s.rejected ? `, ${s.rejected} rejected by you.` : ".");
         $("#run").disabled = false;
       }
     </script>

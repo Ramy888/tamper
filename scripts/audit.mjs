@@ -22,6 +22,7 @@ const out = await runAudit({
     else if (e.agent === "verifier") console.log(`${tag}  ${e.check}: ${e.phase === "pending" ? "pending (" + e.reason + ")" : "fix holds = " + e.fixHolds}`);
     else if (e.agent === "patcher" && e.phase === "proposed") console.log(`${tag}  ${e.check}: ${e.fix}`);
     else if (e.agent === "recon" && e.phase === "done") console.log(`${tag}  ${e.note}`);
+    else if (e.phase === "note") console.log(`${tag}  ${e.check}: ${e.note}`);
     else if (e.agent === "engine") console.log(`\n${tag}  found ${e.found}/${e.checks}, patched ${e.patched}, still vulnerable after patch: ${e.stillVulnerableAfterPatch}`);
   },
 });

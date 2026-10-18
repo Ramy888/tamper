@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAudit } from "../lib/engine.mjs";
 import { CHECKS } from "../lib/checks.mjs";
-import { makeFakePayPal } from "./helpers/fake-paypal.mjs";
+import { makeFakePayPal, captureEvent } from "./helpers/fake-paypal.mjs";
+import { makeInbox } from "../lib/inbox.mjs";
 import { fakeLLM } from "../lib/llm.mjs";
 
 const CARD = { number: "4111111111111111", expiry: "2030-12", security_code: "123" };
@@ -68,4 +69,31 @@ test("a wrong flag from the Patcher does not pass verification", async () => {
   // amount_mismatch and browser_trusted_paid are NOT fixed by dedupeCaptures, so they stay vulnerable.
   assert.ok(out.scorecard.stillVulnerableAfterPatch >= 2, "wrong flag leaves flaws vulnerable");
   assert.ok(out.scorecard.fixesVerified < out.scorecard.found, "a wrong fix is never counted as verified");
+});
+
+test("hosted: the replay finding and its re-check both use PayPal-signed deliveries", async () => {
+  const inbox = makeInbox();
+  const pp = makeFakePayPal({ onCapture: (c) => setTimeout(() => inbox.accept(pp.sign(), JSON.stringify(captureEvent(c))), 5) });
+  const events = [];
+  const out = await runAudit({ pp, llm: goodPatcher, shopSource: "src", card: CARD, inbox, waitMs: 500, emit: (e) => events.push(e) });
+  const verdict = events.find((e) => e.agent === "judge" && e.check === "webhook_replay");
+  assert.match(verdict.proofIds.join(" "), /PayPal-signed/);
+  assert.ok(events.some((e) => e.agent === "verifier" && e.phase === "note" && e.check === "webhook_replay"), "the Verifier's wait is logged too");
+  assert.equal(out.scorecard.fixesVerified, CHECKS.length);
+});
+
+// Live, the replay stand-in event fails PayPal's signature check. A Patcher that answers
+// "verify signatures" for the replay flaw then makes the shop credit nothing at all, which
+// must read as pending, never as a verified fix.
+test("replay: a fix that only makes the shop reject everything is pending, not verified", async () => {
+  const pp = makeFakePayPal();
+  pp.verifyWebhook = async () => ({ verification_status: "FAILURE" });
+  const sigPatcher = fakeLLM((system) =>
+    system.includes("Patcher") ? JSON.stringify({ flag: "verifyWebhookSig", fix: "verify" }) : "recon",
+  );
+  const events = [];
+  await runAudit({ pp, llm: sigPatcher, shopSource: "src", card: CARD, emit: (e) => events.push(e) });
+  const v = events.find((e) => e.agent === "verifier" && e.check === "webhook_replay");
+  assert.equal(v.phase, "pending");
+  assert.notEqual(v.fixHolds, true);
 });

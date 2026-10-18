@@ -41,9 +41,9 @@ export function makeShop(flags = {}, pp = { createOrder, getOrder, getCapture, v
 
     // verifyWebhookSig ON: confirm the event with PayPal first. dedupeCaptures ON: credit each
     // capture id once. Both OFF: credit any posted event, every time (the webhook flaws).
-    async webhook({ event, headers }) {
+    async webhook({ event, headers, rawBody }) {
       if (f.verifyWebhookSig) {
-        const v = await pp.verifyWebhook(headers ?? {}, event);
+        const v = await pp.verifyWebhook(headers ?? {}, event, rawBody);
         if (v.verification_status !== "SUCCESS") return { rejected: "signature not genuine" };
       }
       if (event.event_type !== "PAYMENT.CAPTURE.COMPLETED") return { ignored: true };

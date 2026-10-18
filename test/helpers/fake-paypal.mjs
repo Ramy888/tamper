@@ -4,9 +4,12 @@
 let n = 1000;
 const id = (p) => `${p}-${n++}`;
 
-export function makeFakePayPal() {
+// `onCapture` fires for each card capture, so a test can play PayPal delivering the
+// PAYMENT.CAPTURE.COMPLETED webhook a moment later (see captureEvent and sign below).
+export function makeFakePayPal({ onCapture } = {}) {
   const orders = new Map();
   const captures = new Map();
+  const signed = new Set();
 
   return {
     async createOrder(amount, { currency = "USD", card } = {}) {
@@ -20,6 +23,7 @@ export function makeFakePayPal() {
           purchase_units: [{ payments: { captures: [{ id: capId, amount: { value: String(amount), currency_code: currency } }] } }],
         };
         orders.set(orderId, order);
+        onCapture?.({ captureId: capId, orderId, amount: String(amount), currency });
         return order;
       }
       const order = { id: orderId, status: "CREATED", purchase_units: [{ amount: { value: String(amount), currency_code: currency } }] };
@@ -36,9 +40,29 @@ export function makeFakePayPal() {
       if (!c) throw new Error("capture not found");
       return c;
     },
+    // Headers this fake PayPal will later verify as genuine, as it would a real delivery.
+    sign() {
+      const tid = id("TX");
+      signed.add(tid);
+      return {
+        "paypal-auth-algo": "SHA256withRSA",
+        "paypal-cert-url": "https://api.sandbox.paypal.com/v1/notifications/certs/CERT-FAKE",
+        "paypal-transmission-id": tid,
+        "paypal-transmission-sig": "c2lnbmVk",
+        "paypal-transmission-time": new Date().toISOString(),
+      };
+    },
     // Genuine only when the caller presents genuine headers; a forged event fails, as it does live.
     async verifyWebhook(headers) {
-      return { verification_status: headers?.genuine === true ? "SUCCESS" : "FAILURE" };
+      const genuine = headers?.genuine === true || signed.has(headers?.["paypal-transmission-id"]);
+      return { verification_status: genuine ? "SUCCESS" : "FAILURE" };
     },
   };
 }
+
+// The PAYMENT.CAPTURE.COMPLETED event PayPal posts after a capture (the fields the shop reads).
+export const captureEvent = ({ captureId, orderId, amount, currency = "USD" }) => ({
+  id: `WH-${captureId}`,
+  event_type: "PAYMENT.CAPTURE.COMPLETED",
+  resource: { id: captureId, amount: { value: amount, currency_code: currency }, supplementary_data: { related_ids: { order_id: orderId } } },
+});

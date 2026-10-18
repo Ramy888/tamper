@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Title and end card for the demo video, and the Devpost thumbnail. System fonts only, so nothing
+     is fetched from another host while recording. ?end=1 shows the end card. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tamper card</title>
+    <style>
+      :root { --bg: #0b0f14; --panel: #121923; --line: #1f2a37; --ink: #e6edf3; --mut: #8b98a5; --accent: #ffd140; --green: #4ade80; --red: #ff6b6b; }
+      html, body { margin: 0; width: 100vw; height: 100vh; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+      .wrap { position: absolute; inset: 0; display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 6vw; padding: 0 8vw; }
+      .mark { width: 9vh; height: 9vh; border-radius: 2.2vh; background: linear-gradient(135deg, var(--accent), #ff9d2f); display: grid; place-items: center; color: #1a1205; font-weight: 800; font-size: 5.4vh; }
+      h1 { font-size: 11vh; line-height: 1; margin: 3.5vh 0 2.6vh; letter-spacing: -0.3vh; }
+      p { font-size: 3.4vh; line-height: 1.35; color: var(--mut); margin: 0; }
+      p b { color: var(--ink); font-weight: 600; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 2.4vh; padding: 3.6vh 3.4vh; }
+      .row { display: grid; grid-template-columns: 4.4vh 1fr; gap: 1.6vh; align-items: center; font-size: 2.6vh; margin: 1.5vh 0; }
+      .row i { font-style: normal; text-align: center; font-size: 3vh; }
+      .row small { display: block; color: var(--mut); font-size: 2vh; }
+      .tag { display: inline-block; font-size: 1.8vh; padding: 0.3vh 1vh; border-radius: 99px; background: #2a230c; color: var(--accent); margin-left: 0.8vh; vertical-align: middle; }
+      .stack { margin-top: 3vh; font-size: 2.3vh; color: var(--mut); }
+      .url { margin-top: 2vh; font-size: 2.8vh; color: var(--accent); font-weight: 600; }
+      .end { display: none; }
+      body.is-end .start { display: none; }
+      body.is-end .end { display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div>
+        <div class="mark">T</div>
+        <h1>Tamper</h1>
+        <p class="start">Find the money-losing mistakes in <b>your own PayPal checkout</b>, before they ship.</p>
+        <p class="end">Every finding proven by PayPal's own records. Every fix verified the same way.</p>
+        <div class="end stack">PayPal Orders v2 · Payments v2 · Webhooks (verify-webhook-signature) · Claude</div>
+        <div class="end url">tamper-demo.onrender.com</div>
+      </div>
+      <div class="card">
+        <div class="row"><i>🔎</i><div>Recon <span class="tag">Claude</span><small>maps where the shop decides "paid"</small></div></div>
+        <div class="row"><i>🧪</i><div>Auditors<small>drive real sandbox orders</small></div></div>
+        <div class="row"><i>⚖️</i><div>Judge <span class="tag">no AI</span><small>confirms only what PayPal's records show</small></div></div>
+        <div class="row"><i>🔧</i><div>Patcher <span class="tag">Claude</span><small>names one fix</small></div></div>
+        <div class="row"><i>👤</i><div>You<small>approve or reject each fix</small></div></div>
+        <div class="row"><i>✅</i><div>Verifier<small>re-runs the same check to prove it holds</small></div></div>
+      </div>
+    </div>
+    <script>
+      if (new URLSearchParams(location.search).get("end")) document.body.classList.add("is-end");
+    </script>
+  </body>
+</html>

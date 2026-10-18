@@ -34,6 +34,8 @@ test("full audit: every flaw found on the weak shop, every patch holds on the fi
   const verdicts = events.filter((e) => e.agent === "judge");
   assert.equal(verdicts.length, CHECKS.length);
   for (const v of verdicts.filter((v) => v.confirmed)) assert.ok(v.proofIds.length > 0);
+  // The dashboard titles each finding card from its verdict event alone.
+  for (const v of verdicts) assert.equal(v.title, CHECKS.find((c) => c.id === v.check).title, `${v.check} verdict carries its title`);
 
   // The Verifier must have confirmed each fix holds.
   const verifs = events.filter((e) => e.agent === "verifier");

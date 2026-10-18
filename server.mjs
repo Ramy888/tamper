@@ -173,6 +173,8 @@ export function createTamperServer({
         const key = clientKey(req);
         // A short hash, never the address itself: enough to see the budget is per visitor.
         console.log(`run requested by visitor ${createHash("sha256").update(key).digest("hex").slice(0, 10)}`);
+        const h = (v) => createHash("sha256").update(v).digest("hex").slice(0, 10);
+        console.log(`DIAG xff=[${String(req.headers["x-forwarded-for"] ?? "").split(",").map((v) => h(v.trim())).join(" ")}] headers=${Object.keys(req.headers).filter((k) => /ip|forward|cf-|real/i.test(k)).join(",")} trueClient=${req.headers["true-client-ip"] ? h(String(req.headers["true-client-ip"])) : "-"} cf=${req.headers["cf-connecting-ip"] ? h(String(req.headers["cf-connecting-ip"])) : "-"}`);
         const t = limiter.take(key);
         if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
       }

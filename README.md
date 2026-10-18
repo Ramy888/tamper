@@ -60,9 +60,10 @@ The dashboard streams a live per-agent log, shows each finding with its PayPal p
 waits for your Approve or Reject on every fix.
 
 **Model spend is opt-in.** By default the Recon and Patcher agents run on a built-in no-spend
-model, so the whole audit (including every PayPal proof) works without an Anthropic key. The
-"use live Claude" toggle runs only with the owner's `TAMPER_PASSCODE`, so a public deployment
-can't spend the key.
+model, so the whole audit (including every PayPal proof) works without an Anthropic key. Live
+Claude runs only when the owner's `TAMPER_PASSCODE` comes with the request (`?key=` or the
+`X-Tamper-Key` header); the dashboard checkbox on its own falls back to the no-spend model, so a
+public deployment can't spend the key.
 
 ## Layout
 

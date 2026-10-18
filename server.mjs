@@ -27,6 +27,13 @@ function clientKey(req) {
   return (cf ? String(cf).trim() : req.socket.remoteAddress) ?? "unknown";
 }
 
+// True only when `given` is this secret; an unset secret matches nothing.
+function matches(given, secret) {
+  if (!secret || typeof given !== "string") return false;
+  const a = Buffer.from(given), b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function fakePatcherLLM() {
   return fakeLLM((system, user) => {
     if (!system.includes("Patcher")) return "The shop decides an order is paid at fulfill() and in its webhook; both trust the client, not PayPal's records.";
@@ -164,16 +171,17 @@ export function createTamperServer({
       // Live Claude spends the owner's key, so it is gated: only with the passcode (?key= or
       // X-Tamper-Key). Without it the audit still runs fully with the faked Patcher — no spend.
       // Each run creates sandbox orders, so visitors share an hourly budget; the owner doesn't.
-      const passcode = process.env.TAMPER_PASSCODE;
-      const supplied = url.searchParams.get("key") || req.headers["x-tamper-key"];
-      const owner = !!passcode && supplied === passcode;
+      // Judges get their own demo code (?code=): it lifts the budget so a judging session can't
+      // run out, and never turns on live Claude.
+      const owner = matches(url.searchParams.get("key") || req.headers["x-tamper-key"], process.env.TAMPER_PASSCODE);
+      const judge = matches(url.searchParams.get("code"), process.env.TAMPER_DEMO_CODE);
       const wantsLive = url.searchParams.get("llm") === "live";
       const json = (status, body, headers = {}) => {
         res.writeHead(status, { "Content-Type": "application/json", ...headers });
         return res.end(JSON.stringify(body));
       };
       if (active) return json(409, { error: "an audit is already running" });
-      if (!owner) {
+      if (!owner && !judge) {
         const key = clientKey(req);
         // A short hash, never the address itself: enough to see the budget is per visitor.
         console.log(`run requested by visitor ${createHash("sha256").update(key).digest("hex").slice(0, 10)}`);

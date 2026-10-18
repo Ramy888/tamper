@@ -12,8 +12,9 @@ a demo shop that you own.
 
 **Live demo:** https://tamper-demo.onrender.com (PayPal sandbox only; the first visit after a quiet
 spell can take up to a minute while the free instance wakes). Each audit creates sandbox orders,
-so visitors get 5 runs an hour each and 30 an hour in total. A fix nobody approves within 5
-minutes is rejected, so an idle tab can't hold the single audit slot.
+so visitors get 5 runs an hour each and 30 an hour in total. Judges get a demo code (in the
+submission's testing instructions) that lifts this limit; it never turns on live Claude. A fix
+nobody approves within 5 minutes is rejected, so an idle tab can't hold the single audit slot.
 
 ## The agents
 

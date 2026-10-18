@@ -100,8 +100,13 @@
         $("#run").disabled = true; log.innerHTML = ""; findings.innerHTML = "";
         ["found", "fixed", "pending", "vuln"].forEach((k) => ($("#s-" + k).textContent = "–"));
         $("#status").textContent = "Auditing… real PayPal sandbox calls in flight.";
-        const live = $("#live").checked ? "?llm=live" : "";
-        const es = new EventSource("/run" + live);
+        const params = new URLSearchParams();
+        if ($("#live").checked) params.set("llm", "live");
+        // A judge's demo code in this page's address (?code=) lifts the hourly demo limit.
+        const code = new URLSearchParams(location.search).get("code");
+        if (code) params.set("code", code);
+        const query = String(params);
+        const es = new EventSource("/run" + (query ? "?" + query : ""));
         es.onmessage = (m) => {
           const e = JSON.parse(m.data); lit(e.agent);
           if (e.phase === "token") { runToken = e.token; return; }

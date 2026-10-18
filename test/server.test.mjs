@@ -148,6 +148,34 @@ test("a visitor over the hourly demo limit gets 429; the owner's passcode is not
   );
 });
 
+test("a judge's demo code is not limited, but it never turns on live Claude", async () => {
+  process.env.TAMPER_PASSCODE = "owner-pass";
+  try {
+    await withServer(
+      async (base) => {
+        assert.equal((await fetch(`${base}/run?code=`)).status, 429, "with no demo code set, an empty one is limited");
+        process.env.TAMPER_DEMO_CODE = "judge-code";
+        assert.equal((await fetch(`${base}/run?code=wrong-code`)).status, 429);
+        const judge = await fetch(`${base}/run?code=judge-code&llm=live`);
+        assert.equal(judge.status, 200);
+        const reader = judge.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (!/"phase":"notice"/.test(buf)) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+        }
+        assert.match(buf, /live Claude needs the owner passcode/);
+        await reader.cancel();
+      },
+      { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) } },
+    );
+  } finally {
+    delete process.env.TAMPER_DEMO_CODE;
+  }
+});
+
 test("an approval nobody answers times out: that fix and the rest are rejected, and the run ends", { timeout: 5000 }, async () => {
   await withServer(
     async (base) => {

@@ -2,6 +2,7 @@
 // human click, and receives PayPal's webhook deliveries for the replay check. One run at a time
 // (a demo studio), which keeps the wiring simple.
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -169,7 +170,10 @@ export function createTamperServer({
       };
       if (active) return json(409, { error: "an audit is already running" });
       if (!owner) {
-        const t = limiter.take(clientKey(req));
+        const key = clientKey(req);
+        // A short hash, never the address itself: enough to see the budget is per visitor.
+        console.log(`run requested by visitor ${createHash("sha256").update(key).digest("hex").slice(0, 10)}`);
+        const t = limiter.take(key);
         if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
       }
       const liveLLM = wantsLive && owner;

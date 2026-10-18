@@ -170,3 +170,47 @@ test("an approval nobody answers times out: that fix and the rest are rejected, 
     { pp: makeFakePayPal(), approvalTimeoutMs: 50 },
   );
 });
+
+// Only the dashboard that started the run can decide its fixes: the run's token arrives in
+// its first event and must come back with every approval.
+test("an approval without the run's token is refused and changes nothing", { timeout: 5000 }, async () => {
+  await withServer(
+    async (base) => {
+      const res = await fetch(`${base}/run`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      const seen = [];
+      const next = async (pred) => {
+        for (;;) {
+          const hit = seen.find(pred);
+          if (hit) return hit;
+          const { value, done } = await reader.read();
+          if (done) throw new Error("stream ended");
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n\n")) >= 0) {
+            const chunk = buf.slice(0, i);
+            buf = buf.slice(i + 2);
+            if (chunk.startsWith("data: ")) seen.push(JSON.parse(chunk.slice(6)));
+          }
+        }
+      };
+      const { token } = await next((e) => e.phase === "start");
+      assert.ok(token && token.length >= 16, "the run announces its token");
+      const ask = await next((e) => e.phase === "awaiting-approval");
+      const stranger = await fetch(`${base}/approve?check=${ask.check}&ok=1`, { method: "POST" });
+      assert.equal(stranger.status, 403);
+      const forged = await fetch(`${base}/approve?check=${ask.check}&ok=1`, { method: "POST", headers: { "X-Run-Token": "guess" } });
+      assert.equal(forged.status, 403);
+      await sleep(50);
+      assert.ok(!seen.some((e) => e.agent === "verifier"), "a refused approval does not move the run");
+      const mine = await fetch(`${base}/approve?check=${ask.check}&ok=1`, { method: "POST", headers: { "X-Run-Token": token } });
+      assert.equal(mine.status, 200);
+      const v = await next((e) => e.agent === "verifier" && e.check === ask.check);
+      assert.equal(v.fixHolds, true);
+      await reader.cancel();
+    },
+    { pp: makeFakePayPal() },
+  );
+});

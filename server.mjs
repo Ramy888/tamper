@@ -2,7 +2,7 @@
 // human click, and receives PayPal's webhook deliveries for the replay check. One run at a time
 // (a demo studio), which keeps the wiring simple.
 import { createServer } from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -92,7 +92,9 @@ export function createTamperServer({
   }
 
   async function runStream(res, { liveLLM, denied }) {
-    const run = (active = { pending: new Map(), closed: false, abandoned: false });
+    // Only the dashboard that started this run can decide its fixes: it gets the token in the
+    // first event and sends it back with each approval.
+    const run = (active = { pending: new Map(), closed: false, abandoned: false, token: randomBytes(16).toString("hex") });
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
     const send = (e) => run.closed || res.write(`data: ${JSON.stringify(e)}\n\n`);
     // The reviewer closed the dashboard: nobody is left to approve, so every waiting and later
@@ -101,6 +103,7 @@ export function createTamperServer({
       run.closed = true;
       for (const settle of [...run.pending.values()]) settle(false);
     });
+    send({ agent: "engine", phase: "start", token: run.token });
     if (denied) send({ agent: "engine", phase: "notice", note: denied });
     try {
       const out = await runAudit({
@@ -183,7 +186,13 @@ export function createTamperServer({
     if (url.pathname === "/approve" && req.method === "POST") {
       const check = url.searchParams.get("check");
       const ok = url.searchParams.get("ok") === "1";
-      active?.pending.get(check)?.(ok);
+      const given = Buffer.from(String(req.headers["x-run-token"] ?? ""));
+      const expected = Buffer.from(active?.token ?? "");
+      if (!active || given.length !== expected.length || !timingSafeEqual(given, expected)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "not this run's reviewer" }));
+      }
+      active.pending.get(check)?.(ok);
       res.writeHead(200, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ ok: true }));
     }

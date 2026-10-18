@@ -104,6 +104,7 @@
         const es = new EventSource("/run" + live);
         es.onmessage = (m) => {
           const e = JSON.parse(m.data); lit(e.agent);
+          if (e.phase === "start") { runToken = e.token; return; }
           if (e.agent === "recon" && e.phase === "done") line("recon", esc(e.note));
           else if (e.agent === "auditor" && e.phase === "run") line("auditor", "probing: " + esc(e.title));
           else if (e.phase === "note") line(e.agent, `<span class="proof">${esc(e.note)}</span>`);
@@ -146,9 +147,10 @@
         box.querySelector(".n").onclick = () => decide(e.check, 0, box);
         d.appendChild(box);
       }
+      let runToken = "";
       function decide(check, ok, box) {
         box.remove();
-        fetch(`/approve?check=${encodeURIComponent(check)}&ok=${ok}`, { method: "POST" });
+        fetch(`/approve?check=${encodeURIComponent(check)}&ok=${ok}`, { method: "POST", headers: { "X-Run-Token": runToken } });
       }
       // A decision can also arrive from elsewhere (another tab, the API): once the engine moves
       // past a check, its buttons go.

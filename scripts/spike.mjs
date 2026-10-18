@@ -8,7 +8,7 @@
 //      verify-webhook-signature returns FAILURE, so the Judge rejects it. No LLM involved.
 //
 // Run: node --env-file=.env scripts/spike.mjs
-import { createOrder, captureOrder, getCapture, verifyWebhook } from "../lib/paypal.mjs";
+import { createOrder, captureOrder, getOrder, getCapture, verifyWebhook, SANDBOX_CARD } from "../lib/paypal.mjs";
 
 const log = (tag, obj) => console.log(`\n[${tag}] ${typeof obj === "string" ? obj : JSON.stringify(obj, null, 2)}`);
 const assert = (ok, msg) => { if (!ok) { console.error(`\nFAIL: ${msg}`); process.exit(1); } console.log(`  PASS: ${msg}`); };
@@ -17,12 +17,12 @@ const assert = (ok, msg) => { if (!ok) { console.error(`\nFAIL: ${msg}`); proces
 const SHOP_CLAIMED_PRICE = "200.00"; // what the weak shop's client said the cart was worth
 const ACTUAL_ORDER = "2.00";         // what the order was really created for
 
-const order = await createOrder(ACTUAL_ORDER);
+// Pay inline with a sandbox card: PayPal returns a COMPLETED order, captured for real.
+const order = await createOrder(ACTUAL_ORDER, { card: SANDBOX_CARD });
 log("order.created", { id: order.id, status: order.status });
 
-const cap = await captureOrder(order.id);
-const capId = cap.purchase_units[0].payments.captures[0].id;
-log("order.captured", { captureId: capId, status: cap.status });
+const capId = order.purchase_units[0].payments.captures[0].id;
+log("order.captured", { captureId: capId, status: order.status });
 
 // The Judge: read the capture back from PayPal, never from the shop.
 const truth = await getCapture(capId);

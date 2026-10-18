@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tamper — PayPal checkout auditor</title>
+    <style>
+      :root {
+        --bg: #0b0f14; --panel: #121923; --line: #1f2a37; --ink: #e6edf3; --mut: #8b98a5;
+        --accent: #ffd140; --red: #ff6b6b; --green: #4ade80; --blue: #60a5fa; --purple: #c084fc;
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      a { color: var(--accent); }
+      header { padding: 22px clamp(16px, 4vw, 40px); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+      .logo { display: flex; align-items: center; gap: 11px; }
+      .mark { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, var(--accent), #ff9d2f); display: grid; place-items: center; color: #1a1205; font-weight: 800; font-size: 19px; }
+      h1 { font-size: 19px; margin: 0; letter-spacing: -0.2px; }
+      header p { margin: 0; color: var(--mut); font-size: 13.5px; }
+      main { max-width: 1040px; margin: 0 auto; padding: clamp(16px, 4vw, 32px); }
+      .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+      button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 11px 20px; cursor: pointer; }
+      .run { background: var(--accent); color: #241803; }
+      .run:disabled { opacity: 0.5; cursor: default; }
+      .ghost { background: transparent; color: var(--mut); border: 1px solid var(--line); padding: 7px 12px; font-size: 13px; }
+      .rail { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+      .chip { font-size: 12.5px; color: var(--mut); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; transition: 0.2s; }
+      .chip.on { color: var(--ink); border-color: var(--accent); background: #2a230c; }
+      .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+      @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+      .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--mut); margin: 0 0 12px; }
+      .log { font-family: var(--mono); font-size: 12.5px; max-height: 420px; overflow-y: auto; display: grid; gap: 7px; }
+      .log .row { display: grid; grid-template-columns: 74px 1fr; gap: 10px; align-items: start; }
+      .who { color: var(--mut); }
+      .who.recon { color: var(--blue); } .who.auditor { color: var(--accent); } .who.judge { color: var(--purple); }
+      .who.patcher { color: var(--green); } .who.verifier { color: var(--green); } .who.engine { color: var(--ink); }
+      .vuln { color: var(--red); font-weight: 600; }
+      .ok { color: var(--green); }
+      .proof { color: var(--mut); }
+      .finding { border: 1px solid var(--line); border-left: 3px solid var(--red); border-radius: 10px; padding: 11px 13px; margin-bottom: 10px; }
+      .finding.fixed { border-left-color: var(--green); }
+      .finding .ttl { font-weight: 600; font-size: 14px; }
+      .finding .meta { color: var(--mut); font-size: 12.5px; margin-top: 4px; }
+      .finding .ids { font-family: var(--mono); font-size: 11.5px; color: var(--blue); margin-top: 6px; word-break: break-all; }
+      .approve { display: flex; gap: 8px; margin-top: 10px; }
+      .approve .y { background: var(--green); color: #052e16; padding: 7px 14px; }
+      .approve .n { background: #2a1416; color: var(--red); padding: 7px 14px; }
+      .score { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 6px; }
+      .score div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; text-align: center; }
+      .score b { display: block; font-size: 26px; }
+      .score span { color: var(--mut); font-size: 11.5px; }
+      .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #2a230c; color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo"><div class="mark">T</div><div><h1>Tamper</h1><p>Find the money-losing mistakes in your PayPal checkout — before they ship.</p></div></div>
+    </header>
+    <main>
+      <div class="bar">
+        <button class="run" id="run">Run audit on the demo shop</button>
+        <label class="ghost"><input type="checkbox" id="live" /> use live Claude (spends key)</label>
+        <span class="proof" id="status">Idle. Every finding below is proven against PayPal's own sandbox records.</span>
+      </div>
+      <div class="rail" id="rail">
+        <span class="chip" data-a="recon">🔎 Recon</span>
+        <span class="chip" data-a="auditor">🧪 Auditors</span>
+        <span class="chip" data-a="judge">⚖️ Judge · no AI</span>
+        <span class="chip" data-a="patcher">🔧 Patcher</span>
+        <span class="chip" data-a="verifier">✅ Verifier</span>
+      </div>
+      <div class="grid">
+        <section class="panel"><h2>Live agent log</h2><div class="log" id="log"></div></section>
+        <section>
+          <section class="panel" style="margin-bottom:18px"><h2>Findings</h2><div id="findings"><p class="proof">Run the audit to see what the shop gets wrong.</p></div></section>
+          <section class="panel"><h2>Scorecard</h2><div class="score" id="score">
+            <div><b id="s-found">–</b><span>found</span></div>
+            <div><b id="s-fixed">–</b><span>fixes verified</span></div>
+            <div><b id="s-pending">–</b><span>pending</span></div>
+            <div><b id="s-vuln">–</b><span>still vulnerable</span></div>
+          </div></section>
+        </section>
+      </div>
+    </main>
+    <script>
+      const $ = (s) => document.querySelector(s);
+      const log = $("#log"), findings = $("#findings"), rail = $("#rail");
+      const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      function line(agent, html) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.innerHTML = `<span class="who ${agent}">${agent}</span><span>${html}</span>`;
+        log.appendChild(row); log.scrollTop = log.scrollHeight;
+      }
+      function lit(agent) { rail.querySelectorAll(".chip").forEach((c) => { if (c.dataset.a === agent) c.classList.add("on"); }); }
+
+      $("#run").onclick = () => {
+        $("#run").disabled = true; log.innerHTML = ""; findings.innerHTML = "";
+        ["found", "fixed", "pending", "vuln"].forEach((k) => ($("#s-" + k).textContent = "–"));
+        $("#status").textContent = "Auditing… real PayPal sandbox calls in flight.";
+        const live = $("#live").checked ? "?llm=live" : "";
+        const es = new EventSource("/run" + live);
+        es.onmessage = (m) => {
+          const e = JSON.parse(m.data); lit(e.agent);
+          if (e.agent === "recon" && e.phase === "done") line("recon", esc(e.note));
+          else if (e.agent === "auditor" && e.phase === "run") line("auditor", "probing: " + esc(e.title));
+          else if (e.agent === "judge" && e.phase === "verdict") {
+            const v = e.confirmed ? `<span class="vuln">VULNERABLE</span>` : `<span class="ok">ok</span>`;
+            line("judge", `${v} ${esc(e.check)} — shop ${esc(e.shopBelief)}; <b>${esc(e.truth)}</b>`);
+            if (e.confirmed) addFinding(e);
+          } else if (e.agent === "patcher" && e.phase === "awaiting-approval") askApproval(e);
+          else if (e.agent === "verifier") markVerified(e);
+          else if (e.agent === "engine" && e.phase === "complete") { finish(e.scorecard); es.close(); }
+          else if (e.agent === "engine" && e.phase === "error") { $("#status").textContent = "Error: " + e.error; $("#run").disabled = false; es.close(); }
+        };
+        es.onerror = () => { $("#run").disabled = false; es.close(); };
+      };
+
+      function addFinding(e) {
+        if ($("#findings .proof")) findings.innerHTML = "";
+        const d = document.createElement("div");
+        d.className = "finding"; d.id = "f-" + e.check;
+        d.innerHTML = `<div class="ttl">${esc(e.title)} <span class="pill">${esc(e.severity)}</span></div>
+          <div class="meta">Shop ${esc(e.shopBelief)} · <b>${esc(e.truth)}</b></div>
+          <div class="ids">proof: ${esc((e.proofIds || []).join(" · "))}</div>`;
+        findings.appendChild(d);
+      }
+      function askApproval(e) {
+        const d = $("#f-" + e.check); if (!d) return;
+        line("patcher", esc(e.check) + ": " + esc(e.fix));
+        const box = document.createElement("div");
+        box.className = "approve";
+        box.innerHTML = `<button class="y">Approve fix</button><button class="n">Reject</button>`;
+        box.querySelector(".y").onclick = () => decide(e.check, 1, box);
+        box.querySelector(".n").onclick = () => decide(e.check, 0, box);
+        d.appendChild(box);
+      }
+      function decide(check, ok, box) {
+        box.remove();
+        fetch(`/approve?check=${encodeURIComponent(check)}&ok=${ok}`, { method: "POST" });
+      }
+      function markVerified(e) {
+        const d = $("#f-" + e.check);
+        if (e.phase === "pending") { line("verifier", esc(e.check) + ": <span class='proof'>pending — needs a real PayPal-signed event</span>"); return; }
+        line("verifier", esc(e.check) + ": fix holds = " + (e.fixHolds ? `<span class="ok">yes</span>` : `<span class="vuln">no</span>`));
+        if (d && e.fixHolds) d.classList.add("fixed");
+      }
+      function finish(s) {
+        $("#s-found").textContent = s.found; $("#s-fixed").textContent = s.fixesVerified;
+        $("#s-pending").textContent = s.pending; $("#s-vuln").textContent = s.stillVulnerableAfterPatch;
+        $("#status").textContent = `Done. ${s.found} issues found, each proven by PayPal; ${s.fixesVerified} fixes verified.`;
+        $("#run").disabled = false;
+      }
+    </script>
+  </body>
+</html>

@@ -122,7 +122,7 @@
         let got = false;
         es.addEventListener("message", () => (got = true));
         es.onerror = () => {
-          if (!got) $("#status").textContent = "Couldn't start: another audit may be running, or the server is unreachable. Try again shortly.";
+          if (!got) $("#status").textContent = "Couldn't start: another audit may be running, the hourly demo limit may be reached, or the server is unreachable. Try again shortly.";
           $("#run").disabled = false; es.close();
         };
       };

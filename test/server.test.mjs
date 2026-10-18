@@ -132,3 +132,41 @@ test("the PayPal webhook check is retried on each run until it confirms, then ke
   assert.equal(app.state.inboxLive, true);
   assert.equal(calls, 2, "a confirmed answer is not asked again");
 });
+
+test("a visitor over the hourly demo limit gets 429; the owner's passcode is not limited", async () => {
+  process.env.TAMPER_PASSCODE = "owner-pass";
+  await withServer(
+    async (base) => {
+      const r = await fetch(`${base}/run`);
+      assert.equal(r.status, 429);
+      assert.ok(Number(r.headers.get("retry-after")) > 0);
+      const owner = await fetch(`${base}/run`, { headers: { "X-Tamper-Key": "owner-pass" } });
+      assert.equal(owner.status, 200);
+      await owner.body.cancel();
+    },
+    { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) } },
+  );
+});
+
+test("an approval nobody answers times out: that fix and the rest are rejected, and the run ends", { timeout: 5000 }, async () => {
+  await withServer(
+    async (base) => {
+      const res = await fetch(`${base}/run`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+      }
+      const events = [...buf.matchAll(/^data: (.*)$/gm)].map((m) => JSON.parse(m[1]));
+      const done = events.find((e) => e.phase === "complete");
+      assert.ok(done, "the run completes without anyone approving");
+      assert.equal(done.scorecard.rejected, done.scorecard.found);
+      assert.ok(events.some((e) => e.phase === "note" && /no decision/i.test(e.note)));
+      assert.equal(events.filter((e) => e.phase === "awaiting-approval").length, 1, "only the first fix waits; the rest are rejected at once");
+    },
+    { pp: makeFakePayPal(), approvalTimeoutMs: 50 },
+  );
+});

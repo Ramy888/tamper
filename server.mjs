@@ -8,11 +8,22 @@ import { dirname, join } from "node:path";
 import { runAudit } from "./lib/engine.mjs";
 import { fakeLLM, makeLLM } from "./lib/llm.mjs";
 import { makeInbox, MAX_BODY } from "./lib/inbox.mjs";
+import { makeRateLimit } from "./lib/ratelimit.mjs";
 import * as paypal from "./lib/paypal.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3400;
 const WEBHOOK_PATH = "/api/paypal/webhook";
+const APPROVAL_TIMEOUT_MS = 5 * 60_000;
+
+const duration = (ms) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
+
+// The visitor the demo budget is counted against. On Render the address arrives in
+// X-Forwarded-For; locally it is the socket's.
+function clientKey(req) {
+  const xff = process.env.RENDER && req.headers["x-forwarded-for"];
+  return (xff ? xff.split(",")[0].trim() : req.socket.remoteAddress) ?? "unknown";
+}
 
 function fakePatcherLLM() {
   return fakeLLM((system, user) => {
@@ -60,9 +71,15 @@ async function webhookPointsHere(pp = paypal) {
   }
 }
 
-export function createTamperServer({ inbox = makeInbox(), pp = paypal, checkInbox = () => webhookPointsHere(pp) } = {}) {
+export function createTamperServer({
+  inbox = makeInbox(),
+  pp = paypal,
+  checkInbox = () => webhookPointsHere(pp),
+  limiter = makeRateLimit(),
+  approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
+} = {}) {
   const state = { inboxLive: false };
-  // The one active run (a demo studio): its pending human approvals, check id -> resolve fn.
+  // The one active run (a demo studio): its pending human approvals, check id -> settle fn.
   let active = null;
 
   // Asked again on each run until PayPal confirms the webhook points here, so a transient
@@ -73,19 +90,14 @@ export function createTamperServer({ inbox = makeInbox(), pp = paypal, checkInbo
   }
 
   async function runStream(res, { liveLLM, denied }) {
-    if (active) {
-      res.writeHead(409, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "an audit is already running" }));
-    }
-    const run = (active = { pending: new Map(), closed: false });
+    const run = (active = { pending: new Map(), closed: false, abandoned: false });
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
     const send = (e) => run.closed || res.write(`data: ${JSON.stringify(e)}\n\n`);
     // The reviewer closed the dashboard: nobody is left to approve, so every waiting and later
     // patch is rejected and the run finishes, freeing the slot.
     res.on("close", () => {
       run.closed = true;
-      for (const resolve of run.pending.values()) resolve(false);
-      run.pending.clear();
+      for (const settle of [...run.pending.values()]) settle(false);
     });
     if (denied) send({ agent: "engine", phase: "notice", note: denied });
     try {
@@ -94,11 +106,23 @@ export function createTamperServer({ inbox = makeInbox(), pp = paypal, checkInbo
         llm: liveLLM ? makeLLM() : fakePatcherLLM(),
         inbox: (await refreshInbox()) ? inbox : undefined,
         emit: send,
+        // A reviewer who hasn't decided within the timeout is treated as gone, so an idle tab
+        // can't hold the one run slot: this fix and every later one are rejected.
         approve: (f) =>
-          run.closed
+          run.closed || run.abandoned
             ? Promise.resolve(false)
             : new Promise((resolve) => {
-                run.pending.set(f.id, resolve);
+                const timer = setTimeout(() => {
+                  run.abandoned = true;
+                  send({ agent: "patcher", phase: "note", check: f.id, note: `no decision in ${duration(approvalTimeoutMs)}; this and the remaining fixes are rejected` });
+                  settle(false);
+                }, approvalTimeoutMs);
+                const settle = (ok) => {
+                  clearTimeout(timer);
+                  run.pending.delete(f.id);
+                  resolve(ok);
+                };
+                run.pending.set(f.id, settle);
                 send({ agent: "patcher", phase: "awaiting-approval", check: f.id, title: f.title, fix: f.fix });
               }),
       });
@@ -134,21 +158,27 @@ export function createTamperServer({ inbox = makeInbox(), pp = paypal, checkInbo
     if (url.pathname === "/run") {
       // Live Claude spends the owner's key, so it is gated: only with the passcode (?key= or
       // X-Tamper-Key). Without it the audit still runs fully with the faked Patcher — no spend.
-      const wantsLive = url.searchParams.get("llm") === "live";
+      // Each run creates sandbox orders, so visitors share an hourly budget; the owner doesn't.
       const passcode = process.env.TAMPER_PASSCODE;
       const supplied = url.searchParams.get("key") || req.headers["x-tamper-key"];
-      const liveLLM = wantsLive && !!passcode && supplied === passcode;
-      if (wantsLive && !liveLLM) return runStream(res, { liveLLM: false, denied: "live Claude needs the owner passcode; ran with no-spend auditor instead" });
-      return runStream(res, { liveLLM });
+      const owner = !!passcode && supplied === passcode;
+      const wantsLive = url.searchParams.get("llm") === "live";
+      const json = (status, body, headers = {}) => {
+        res.writeHead(status, { "Content-Type": "application/json", ...headers });
+        return res.end(JSON.stringify(body));
+      };
+      if (active) return json(409, { error: "an audit is already running" });
+      if (!owner) {
+        const t = limiter.take(clientKey(req));
+        if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
+      }
+      const liveLLM = wantsLive && owner;
+      return runStream(res, { liveLLM, denied: wantsLive && !liveLLM ? "live Claude needs the owner passcode; ran with no-spend auditor instead" : undefined });
     }
     if (url.pathname === "/approve" && req.method === "POST") {
       const check = url.searchParams.get("check");
       const ok = url.searchParams.get("ok") === "1";
-      const resolve = active?.pending.get(check);
-      if (resolve) {
-        resolve(ok);
-        active.pending.delete(check);
-      }
+      active?.pending.get(check)?.(ok);
       res.writeHead(200, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ ok: true }));
     }

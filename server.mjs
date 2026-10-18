@@ -19,11 +19,12 @@ const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
 const duration = (ms) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
 
-// The visitor the demo budget is counted against. On Render the address arrives in
-// X-Forwarded-For; locally it is the socket's.
+// The visitor the demo budget is counted against. On Render, Cloudflare sits in front and sets
+// CF-Connecting-IP itself; X-Forwarded-For is not used because its first entry is whatever the
+// client sent (checked on the live service). Locally it is the socket's address.
 function clientKey(req) {
-  const xff = process.env.RENDER && req.headers["x-forwarded-for"];
-  return (xff ? xff.split(",")[0].trim() : req.socket.remoteAddress) ?? "unknown";
+  const cf = process.env.RENDER && req.headers["cf-connecting-ip"];
+  return (cf ? String(cf).trim() : req.socket.remoteAddress) ?? "unknown";
 }
 
 function fakePatcherLLM() {
@@ -173,8 +174,6 @@ export function createTamperServer({
         const key = clientKey(req);
         // A short hash, never the address itself: enough to see the budget is per visitor.
         console.log(`run requested by visitor ${createHash("sha256").update(key).digest("hex").slice(0, 10)}`);
-        const h = (v) => createHash("sha256").update(v).digest("hex").slice(0, 10);
-        console.log(`DIAG xff=[${String(req.headers["x-forwarded-for"] ?? "").split(",").map((v) => h(v.trim())).join(" ")}] headers=${Object.keys(req.headers).filter((k) => /ip|forward|cf-|real/i.test(k)).join(",")} trueClient=${req.headers["true-client-ip"] ? h(String(req.headers["true-client-ip"])) : "-"} cf=${req.headers["cf-connecting-ip"] ? h(String(req.headers["cf-connecting-ip"])) : "-"}`);
         const t = limiter.take(key);
         if (!t.ok) return json(429, { error: "hourly demo limit reached", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
       }

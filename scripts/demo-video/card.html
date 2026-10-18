@@ -9,7 +9,7 @@
       :root { --bg: #0b0f14; --panel: #121923; --line: #1f2a37; --ink: #e6edf3; --mut: #8b98a5; --accent: #ffd140; --green: #4ade80; --red: #ff6b6b; }
       html, body { margin: 0; width: 100vw; height: 100vh; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
       .wrap { position: absolute; inset: 0; display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 6vw; padding: 0 8vw; }
-      .mark { width: 9vh; height: 9vh; border-radius: 2.2vh; background: linear-gradient(135deg, var(--accent), #ff9d2f); display: grid; place-items: center; color: #1a1205; font-weight: 800; font-size: 5.4vh; }
+      .mark { width: 9vh; height: 9vh; display: block; }
       h1 { font-size: 11vh; line-height: 1; margin: 3.5vh 0 2.6vh; letter-spacing: -0.3vh; }
       p { font-size: 3.4vh; line-height: 1.35; color: var(--mut); margin: 0; }
       p b { color: var(--ink); font-weight: 600; }
@@ -28,7 +28,12 @@
   <body>
     <div class="wrap">
       <div>
-        <div class="mark">T</div>
+        <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+          <defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD25C" /><stop offset="1" stop-color="#F2862B" /></linearGradient></defs>
+          <rect width="40" height="40" rx="10" fill="url(#tg)" />
+          <path d="M20 6.8l10.4 3.8v7.7c0 6.5-4.4 12-10.4 13.7-6-1.7-10.4-7.2-10.4-13.7v-7.7z" fill="#15110a" />
+          <path d="M14.6 14.6h10.8M20 14.6v11.2" fill="none" stroke="url(#tg)" stroke-width="3.1" stroke-linecap="round" />
+        </svg>
         <h1>Tamper</h1>
         <p class="start">Find the money-losing mistakes in <b>your own PayPal checkout</b>, before they ship.</p>
         <p class="end">Every finding proven by PayPal's own records. Every fix verified the same way.</p>

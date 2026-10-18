@@ -110,7 +110,8 @@ export function createTamperServer({
       run.closed = true;
       for (const settle of [...run.pending.values()]) settle(false);
     });
-    send({ agent: "engine", phase: "token", token: run.token });
+    // The dashboard also learns which model runs, so it never shows live Claude when it is off.
+    send({ agent: "engine", phase: "token", token: run.token, model: liveLLM ? "live" : "no-spend" });
     if (denied) send({ agent: "engine", phase: "notice", note: denied });
     try {
       const out = await runAudit({

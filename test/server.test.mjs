@@ -148,6 +148,22 @@ test("a visitor over the hourly demo limit gets 429; the owner's passcode is not
   );
 });
 
+test("a run announces its model: asking for live Claude without the passcode gets the no-spend one", async () => {
+  delete process.env.TAMPER_PASSCODE;
+  await withServer(
+    async (base) => {
+      const res = await fetch(`${base}/run?llm=live`);
+      const reader = res.body.getReader();
+      const { value } = await reader.read();
+      const first = JSON.parse(new TextDecoder().decode(value).match(/^data: (.*)$/m)[1]);
+      assert.equal(first.phase, "token");
+      assert.equal(first.model, "no-spend", "the dashboard learns live Claude is off before the audit starts");
+      await reader.cancel();
+    },
+    { pp: makeFakePayPal() },
+  );
+});
+
 test("a judge's demo code is not limited, but it never turns on live Claude", async () => {
   process.env.TAMPER_PASSCODE = "owner-pass";
   try {

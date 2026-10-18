@@ -124,9 +124,9 @@ await b.resume();
 await caption("Tamper audits your own PayPal checkout in the sandbox, before it ships");
 await sleep(4200);
 await caption("Five agents hand work to each other. The Judge uses no AI, and you approve every fix");
-await hover(".chip[data-a=recon]"); await sleep(1400);
-await hover(".chip[data-a=judge]"); await sleep(1600);
-await hover(".chip[data-a=verifier]"); await sleep(1500);
+await hover(".agent[data-a=recon]"); await sleep(1400);
+await hover(".agent[data-a=judge]"); await sleep(1600);
+await hover(".agent[data-a=verifier]"); await sleep(1500);
 if (LIVE) {
   await caption("Recon and the Patcher run on Claude");
   await clickSel("#live"); await sleep(2200);

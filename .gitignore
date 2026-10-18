@@ -1,0 +1,19 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.DS_Store
+/.next/
+*.tsbuildinfo
+
+# Private planning notes and AI agent instructions (kept local, never pushed)
+notes/
+debate/
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+agent/
+.cursor/
+skills-lock.json
+.mcp.json

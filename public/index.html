@@ -207,6 +207,24 @@
       .who[data-a="patcher"] { color: var(--teal); } .who[data-a="verifier"] { color: var(--green); } .who[data-a="engine"] { color: var(--ink); }
       .vuln { color: var(--red); font-weight: 700; } .ok { color: var(--green); font-weight: 700; } .proof { color: var(--mut); }
 
+      /* ---- passcode dialog ---- */
+      .pass { width: min(420px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.6); }
+      .pass::backdrop { background: rgba(5, 8, 12, 0.55); backdrop-filter: blur(3px); }
+      .pass form { display: grid; gap: 12px; padding: 20px; }
+      .pass-head { display: flex; align-items: center; gap: 10px; }
+      .pass-head svg { width: 30px; height: 30px; flex: none; }
+      .pass h2 { margin: 0; font-size: 17px; font-weight: 700; }
+      .pass p { margin: 0; color: var(--mut); font-size: 13.5px; }
+      .pass label { font-size: 12px; font-weight: 680; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mut); }
+      .pass input {
+        width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--line-2); background: var(--surface-2); color: var(--ink);
+      }
+      .pass input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+      .pass-error { min-height: 1.2em; color: var(--red) !important; font-weight: 600; }
+      .pass-actions { display: flex; justify-content: flex-end; gap: 8px; }
+      .ghost { font-weight: 650; border-radius: 11px; padding: 10px 16px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--ink-2); }
+
       footer { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 32px) 28px; color: var(--mut); font-size: 12.5px; }
 
       @media (max-width: 1000px) { .work { grid-template-columns: 1fr; } }
@@ -337,6 +355,28 @@
         </section>
       </div>
     </main>
+    <dialog class="pass" id="pass" aria-labelledby="pass-title">
+      <form id="pass-form" method="dialog">
+        <div class="pass-head">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <defs><linearGradient id="tg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD25C" /><stop offset="1" stop-color="#F2862B" /></linearGradient></defs>
+            <rect width="40" height="40" rx="10" fill="url(#tg2)" />
+            <path d="M20 6.8l10.4 3.8v7.7c0 6.5-4.4 12-10.4 13.7-6-1.7-10.4-7.2-10.4-13.7v-7.7z" fill="#15110a" />
+            <path d="M14.6 14.6h10.8M20 14.6v11.2" fill="none" stroke="url(#tg2)" stroke-width="3.1" stroke-linecap="round" />
+          </svg>
+          <h2 id="pass-title">Unlock live AI</h2>
+        </div>
+        <p>Live AI runs Recon and the Patcher on a real model and spends the owner's API key. Enter the owner passcode to turn it on in this browser for 12 hours.</p>
+        <label for="pass-input">Owner passcode</label>
+        <input id="pass-input" type="password" autocomplete="current-password" maxlength="200" required autofocus />
+        <p class="pass-error" id="pass-error" role="alert"></p>
+        <div class="pass-actions">
+          <button class="ghost" id="pass-cancel" type="button">Cancel</button>
+          <button class="run" id="pass-ok" type="submit">Unlock</button>
+        </div>
+      </form>
+    </dialog>
+
     <footer>PayPal sandbox only. Tamper moves no money of its own: it reads PayPal's records and drives test orders on a demo shop.</footer>
 
     <script>
@@ -489,10 +529,48 @@
         document.querySelectorAll(".badge.ai").forEach((b) => (b.textContent = live ? "AI" : "no-spend"));
         if (!live && $("#live").checked) {
           $("#live").checked = false;
+          ownerUnlocked = false;
           modelNote = "Live AI needs the owner passcode, so this run uses the no-spend model.";
           setStatus("Auditing… real PayPal sandbox calls in flight.");
         }
       }
+
+      // ---- live AI: ticking the box asks for the owner passcode, unless this browser is unlocked ----
+      const pass = $("#pass"), passInput = $("#pass-input"), passError = $("#pass-error");
+      let ownerUnlocked = false;
+      $("#live").addEventListener("change", async () => {
+        if (!$("#live").checked || ownerUnlocked) return;
+        try { ownerUnlocked = (await fetch("/api/owner")).status === 204; } catch {}
+        if (ownerUnlocked) return;
+        passInput.value = ""; passError.textContent = "";
+        pass.showModal();
+      });
+      $("#pass-cancel").onclick = () => pass.close("cancel");
+      $("#pass-form").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        passError.textContent = "";
+        $("#pass-ok").disabled = true;
+        try {
+          const r = await fetch("/api/owner", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passcode: passInput.value }) });
+          if (r.status === 204) { ownerUnlocked = true; return pass.close("ok"); }
+          if (r.status === 429) {
+            const wait = Math.max(1, Math.ceil(Number(r.headers.get("Retry-After") || 60) / 60));
+            passError.textContent = `Too many tries. Try again in ${wait} min.`;
+          } else passError.textContent = r.status === 401 ? "That passcode isn't right." : "Couldn't check the passcode. Try again.";
+          passInput.select();
+        } catch {
+          passError.textContent = "Couldn't reach the server. Try again.";
+        } finally {
+          $("#pass-ok").disabled = false;
+        }
+      });
+      // Esc, Cancel or any close without a right passcode leaves live AI off.
+      pass.addEventListener("close", () => {
+        passInput.value = "";
+        if (pass.returnValue !== "ok") $("#live").checked = false;
+        else setStatus("Live AI unlocked in this browser. Run the audit to use it.");
+        pass.returnValue = "";
+      });
 
       function line(agent, html) {
         $(".empty", log)?.remove();

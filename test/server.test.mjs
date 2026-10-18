@@ -192,6 +192,57 @@ test("a judge's demo code is not limited, but it never turns on live Claude", as
   }
 });
 
+// Reads a run's first event (the token), then hangs up.
+async function firstEvent(res) {
+  const reader = res.body.getReader();
+  const { value } = await reader.read();
+  await reader.cancel();
+  return JSON.parse(new TextDecoder().decode(value).match(/^data: (.*)$/m)[1]);
+}
+const unlock = (base, passcode) => fetch(`${base}/api/owner`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ passcode }) });
+
+test("the passcode dialog unlocks this browser as the owner through an HttpOnly cookie", async () => {
+  process.env.TAMPER_PASSCODE = "owner-pass";
+  await withServer(
+    async (base) => {
+      const wrong = await unlock(base, "nope");
+      assert.equal(wrong.status, 401);
+      assert.equal(wrong.headers.get("set-cookie"), null, "a wrong passcode sets nothing");
+      assert.equal((await fetch(`${base}/api/owner`)).status, 401);
+
+      const right = await unlock(base, "owner-pass");
+      assert.equal(right.status, 204);
+      const cookie = right.headers.get("set-cookie");
+      assert.match(cookie, /HttpOnly/);
+      assert.match(cookie, /SameSite=Strict/);
+      const session = cookie.split(";")[0];
+      assert.equal((await fetch(`${base}/api/owner`, { headers: { cookie: session } })).status, 204);
+      assert.equal((await fetch(`${base}/api/owner`, { headers: { "X-Tamper-Key": "owner-pass" } })).status, 204, "the header still counts (the video recorder uses it)");
+
+      // The cookie makes /run the owner's: the visitor budget (always refusing here) is skipped.
+      // No llm=live, so no model call is ever made by this test.
+      assert.equal((await fetch(`${base}/run`, { headers: { cookie: "tamper_owner=" + "0".repeat(64) } })).status, 429, "a made-up session is a visitor");
+      const run = await fetch(`${base}/run`, { headers: { cookie: session } });
+      assert.equal(run.status, 200);
+      assert.equal((await firstEvent(run)).model, "no-spend");
+    },
+    { pp: makeFakePayPal(), limiter: { take: () => ({ ok: false, retryAfterSec: 42 }) } },
+  );
+});
+
+test("passcode attempts are limited per visitor, even a correct one once the limit is hit", async () => {
+  process.env.TAMPER_PASSCODE = "owner-pass";
+  await withServer(
+    async (base) => {
+      const r = await unlock(base, "owner-pass");
+      assert.equal(r.status, 429);
+      assert.ok(Number(r.headers.get("retry-after")) > 0);
+      assert.equal(r.headers.get("set-cookie"), null);
+    },
+    { pp: makeFakePayPal(), ownerLimiter: { take: () => ({ ok: false, retryAfterSec: 600 }) } },
+  );
+});
+
 test("an approval nobody answers times out: that fix and the rest are rejected, and the run ends", { timeout: 5000 }, async () => {
   await withServer(
     async (base) => {

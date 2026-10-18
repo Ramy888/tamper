@@ -67,9 +67,11 @@ waits for your Approve or Reject on every fix.
 
 **Model spend is opt-in.** By default the Recon and Patcher agents run on a built-in no-spend
 model, so the whole audit (including every PayPal proof) works without an Anthropic key. Live
-Claude runs only when the owner's `TAMPER_PASSCODE` comes with the request (`?key=` or the
-`X-Tamper-Key` header); the dashboard checkbox on its own falls back to the no-spend model, so a
-public deployment can't spend the key.
+AI runs only for the owner. On the dashboard, ticking **Live AI** asks for `TAMPER_PASSCODE`; a
+right passcode starts a 12-hour session in that browser (an HttpOnly cookie, so the passcode never
+goes in a URL), and each visitor gets 5 tries per 15 minutes. Scripts can send the passcode with
+the request instead (`?key=` or the `X-Tamper-Key` header). Without it a run falls back to the
+no-spend model and the dashboard says so, so a public deployment can't spend the key.
 
 ## Layout
 

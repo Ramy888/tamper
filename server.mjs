@@ -16,6 +16,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3400;
 const WEBHOOK_PATH = "/api/paypal/webhook";
 const APPROVAL_TIMEOUT_MS = 5 * 60_000;
+// Entering the owner passcode in the dashboard unlocks live AI for this long, in this browser.
+const OWNER_COOKIE = "tamper_owner";
+const OWNER_SESSION_MS = 12 * 60 * 60_000;
+const MAX_OWNER_SESSIONS = 50;
 
 const duration = (ms) => (ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 1000)} s`);
 
@@ -85,9 +89,37 @@ export function createTamperServer({
   pp = paypal,
   checkInbox = () => webhookPointsHere(pp),
   limiter = makeRateLimit(),
+  // The passcode unlocks spending the owner's key, so guesses are limited per visitor.
+  ownerLimiter = makeRateLimit({ perClient: 5, global: 100, windowMs: 15 * 60_000 }),
   approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
 } = {}) {
   const state = { inboxLive: false };
+  // Owner sessions from the passcode dialog: random token -> expiry. Kept in memory, so a
+  // restart (every deploy) asks for the passcode again.
+  const sessions = new Map();
+
+  function ownerSession(req) {
+    const m = new RegExp(`(?:^|;\\s*)${OWNER_COOKIE}=([a-f0-9]{64})(?:;|$)`).exec(req.headers.cookie ?? "");
+    const expires = m && sessions.get(m[1]);
+    if (!expires) return false;
+    if (expires > Date.now()) return true;
+    sessions.delete(m[1]);
+    return false;
+  }
+
+  // The owner: the passcode in the request (?key= or X-Tamper-Key), or a session from the dialog.
+  const isOwner = (req, url) =>
+    matches(url.searchParams.get("key") || req.headers["x-tamper-key"], process.env.TAMPER_PASSCODE) ||
+    (!!process.env.TAMPER_PASSCODE && ownerSession(req));
+
+  function startSession() {
+    const now = Date.now();
+    for (const [token, expires] of sessions) if (expires <= now) sessions.delete(token);
+    while (sessions.size >= MAX_OWNER_SESSIONS) sessions.delete(sessions.keys().next().value);
+    const token = randomBytes(32).toString("hex");
+    sessions.set(token, now + OWNER_SESSION_MS);
+    return token;
+  }
   // The one active run (a demo studio): its pending human approvals, check id -> settle fn.
   let active = null;
 
@@ -150,6 +182,10 @@ export function createTamperServer({
 
   async function handle(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const json = (status, body, headers = {}) => {
+      res.writeHead(status, { "Content-Type": "application/json", ...headers });
+      return res.end(JSON.stringify(body));
+    };
     if (url.pathname === "/") {
       const html = await readFile(join(here, "public", "index.html"));
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -168,19 +204,35 @@ export function createTamperServer({
       res.writeHead(200);
       return res.end();
     }
+    if (url.pathname === "/api/owner") {
+      // GET: is this browser the owner? POST {passcode}: the dashboard's passcode dialog. A right
+      // passcode starts an HttpOnly session cookie, so the passcode never sits in a URL.
+      if (req.method === "GET") {
+        res.writeHead(isOwner(req, url) ? 204 : 401);
+        return res.end();
+      }
+      if (req.method === "POST") {
+        const t = ownerLimiter.take(clientKey(req));
+        if (!t.ok) return json(429, { error: "too many passcode attempts", retryAfterSec: t.retryAfterSec }, { "Retry-After": String(t.retryAfterSec) });
+        const raw = await readBody(req, 1024);
+        let given;
+        try { given = JSON.parse(raw ?? "").passcode; } catch {}
+        if (!matches(given, process.env.TAMPER_PASSCODE)) return json(401, { error: "wrong passcode" });
+        const secure = process.env.RENDER ? "; Secure" : "";
+        res.writeHead(204, { "Set-Cookie": `${OWNER_COOKIE}=${startSession()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${OWNER_SESSION_MS / 1000}${secure}` });
+        return res.end();
+      }
+    }
     if (url.pathname === "/run") {
-      // Live Claude spends the owner's key, so it is gated: only with the passcode (?key= or
-      // X-Tamper-Key). Without it the audit still runs fully with the faked Patcher — no spend.
+      // Live AI spends the owner's key, so it is gated: only for the owner (the passcode in the
+      // request, or a session from the dashboard's passcode dialog). Without it the audit still
+      // runs fully with the no-spend model.
       // Each run creates sandbox orders, so visitors share an hourly budget; the owner doesn't.
       // Judges get their own demo code (?code=): it lifts the budget so a judging session can't
-      // run out, and never turns on live Claude.
-      const owner = matches(url.searchParams.get("key") || req.headers["x-tamper-key"], process.env.TAMPER_PASSCODE);
+      // run out, and never turns on live AI.
+      const owner = isOwner(req, url);
       const judge = matches(url.searchParams.get("code"), process.env.TAMPER_DEMO_CODE);
       const wantsLive = url.searchParams.get("llm") === "live";
-      const json = (status, body, headers = {}) => {
-        res.writeHead(status, { "Content-Type": "application/json", ...headers });
-        return res.end(JSON.stringify(body));
-      };
       if (active) return json(409, { error: "an audit is already running" });
       if (!owner && !judge) {
         const key = clientKey(req);

@@ -103,7 +103,7 @@ export function createTamperServer({
       run.closed = true;
       for (const settle of [...run.pending.values()]) settle(false);
     });
-    send({ agent: "engine", phase: "start", token: run.token });
+    send({ agent: "engine", phase: "token", token: run.token });
     if (denied) send({ agent: "engine", phase: "notice", note: denied });
     try {
       const out = await runAudit({

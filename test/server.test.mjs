@@ -171,6 +171,8 @@ test("an approval nobody answers times out: that fix and the rest are rejected, 
   );
 });
 
+const TOKEN_PHASE = "token";
+
 // Only the dashboard that started the run can decide its fixes: the run's token arrives in
 // its first event and must come back with every approval.
 test("an approval without the run's token is refused and changes nothing", { timeout: 5000 }, async () => {
@@ -196,9 +198,11 @@ test("an approval without the run's token is refused and changes nothing", { tim
           }
         }
       };
-      const { token } = await next((e) => e.phase === "start");
+      const { token } = await next((e) => e.phase === TOKEN_PHASE);
       assert.ok(token && token.length >= 16, "the run announces its token");
       const ask = await next((e) => e.phase === "awaiting-approval");
+      // The dashboard keeps the token from every event with this phase, so no other event may share it.
+      assert.ok(seen.filter((e) => e.phase === TOKEN_PHASE).every((e) => e.token === token), "no other event reuses the token's phase");
       const stranger = await fetch(`${base}/approve?check=${ask.check}&ok=1`, { method: "POST" });
       assert.equal(stranger.status, 403);
       const forged = await fetch(`${base}/approve?check=${ask.check}&ok=1`, { method: "POST", headers: { "X-Run-Token": "guess" } });

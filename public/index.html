@@ -104,7 +104,7 @@
         const es = new EventSource("/run" + live);
         es.onmessage = (m) => {
           const e = JSON.parse(m.data); lit(e.agent);
-          if (e.phase === "start") { runToken = e.token; return; }
+          if (e.phase === "token") { runToken = e.token; return; }
           if (e.agent === "recon" && e.phase === "done") line("recon", esc(e.note));
           else if (e.agent === "auditor" && e.phase === "run") line("auditor", "probing: " + esc(e.title));
           else if (e.phase === "note") line(e.agent, `<span class="proof">${esc(e.note)}</span>`);

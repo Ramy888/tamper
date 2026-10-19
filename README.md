@@ -10,8 +10,7 @@ to prove the fix holds.
 Tamper moves no money of its own. It only reads PayPal's records and drives sandbox orders on
 a demo shop that you own.
 
-**Live demo:** https://tamper-demo.onrender.com (PayPal sandbox only; the first visit after a quiet
-spell can take up to a minute while the free instance wakes). Each audit creates sandbox orders,
+**Live demo:** https://tamper-demo.onrender.com (PayPal sandbox only). Each audit creates sandbox orders,
 so visitors get 5 runs an hour each and 30 an hour in total. Judges get a demo code (in the
 submission's testing instructions): opening the page with it lifts this limit and ticks Live AI,
 which runs on the real model within a judges' budget of 4 live runs per judge and 12 in total per

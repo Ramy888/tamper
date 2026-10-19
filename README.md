@@ -61,6 +61,20 @@ signed `PAYMENT.CAPTURE.COMPLETED` delivery, has the Judge confirm it is genuine
 exact event. Run locally, it replays a synthetic stand-in instead, and the proof is labelled
 **"synthetic stand-in, not PayPal-signed"**. The report never claims more than it did.
 
+## Built with
+
+- **PayPal (sandbox only, a dedicated REST app):**
+  - Orders v2: create, capture with a sandbox card, show order;
+  - `PayPal-Request-Id` idempotency on order creation;
+  - Payments v2: show capture;
+  - Webhooks: `verify-webhook-signature`, webhook lookup, and an endpoint that receives PayPal's real
+    `PAYMENT.CAPTURE.COMPLETED` deliveries.
+- **AI:** Claude (Sonnet, Anthropic SDK) runs the Recon and Patcher agents. The Judge and the Verifier
+  are plain code, and the AI's answer is tested, not trusted.
+- **Render** (sponsor tool): hosts the live demo as a web service that redeploys on every push to
+  `main`, with the PayPal webhook pointed at it.
+- Node 22 with no framework, server-sent events for the live dashboard, and `node:test`.
+
 ## Run it
 
 Needs Node 22 or newer and a **dedicated** PayPal sandbox REST app (keep its webhook feed apart from

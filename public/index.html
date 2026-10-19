@@ -423,11 +423,13 @@
         browser_trusted_paid: "Paid on the browser's word",
         unverified_webhook: "Webhook signature not checked",
         webhook_replay: "Replayed webhook credited twice",
+        agent_price: "Assistant's price charged",
+        agent_retry: "Assistant's retry charged twice",
       };
       const NAMES = { recon: "Recon", auditor: "Auditors", judge: "Judge", patcher: "Patcher", you: "You", verifier: "Verifier" };
       const COLOR = { recon: "--blue", auditor: "--accent", judge: "--violet", patcher: "--teal", you: "--rose", verifier: "--green" };
       const IDLE = {
-        recon: "Waiting to start", auditor: "4 checks ready", judge: "PayPal's records only",
+        recon: "Waiting to start", auditor: "Checks ready", judge: "PayPal's records only",
         patcher: "Waiting for findings", you: "Approves each fix", verifier: "Waiting for an approved fix",
       };
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -565,7 +567,7 @@
       }
 
       // ---- one run ----
-      let runToken = "", counts = {}, modelNote = "";
+      let runToken = "", counts = {}, modelNote = "", totalChecks = 0;
       const setStatus = (text) => ($("#status").textContent = text + (modelNote ? " " + modelNote : ""));
       const youMetric = () => `${counts.approved} approved, ${counts.rejected} rejected`;
       function resetRun() {
@@ -676,7 +678,13 @@
 
       function handle(e, es) {
         const { agent, phase } = e, t = e.t;
-        if (phase === "token") { runToken = e.token; showModel(e.model); return; }
+        if (phase === "token") {
+          runToken = e.token; showModel(e.model);
+          // How many checks this audit runs, from the server (older servers don't say).
+          totalChecks = e.checks || 0;
+          if (totalChecks) setAgent("auditor", "idle", `${totalChecks} checks ready`);
+          return;
+        }
         if (agent === "engine" && phase === "notice") {
           // The exact reason live AI is off (no passcode, or the judges' hourly budget is used up).
           if (modelNote) { modelNote = cap(e.note) + "."; setStatus("Auditing… real PayPal sandbox calls in flight."); }
@@ -690,7 +698,7 @@
         }
         if (agent === "auditor" && phase === "run") {
           counts.checks++;
-          setAgent("auditor", "working", `Check ${counts.checks} of 4`);
+          setAgent("auditor", "working", totalChecks ? `Check ${counts.checks} of ${totalChecks}` : `Check ${counts.checks}`);
           say("auditor", `Probing: ${esc(e.title)}`, { t });
           return pulseIn("auditor");
         }

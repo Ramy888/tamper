@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { runAudit } from "./lib/engine.mjs";
+import { CHECKS } from "./lib/checks.mjs";
 import { fakeLLM, makeLLM } from "./lib/llm.mjs";
 import { makeInbox, MAX_BODY } from "./lib/inbox.mjs";
 import { makeRateLimit } from "./lib/ratelimit.mjs";
@@ -42,11 +43,14 @@ function matches(given, secret) {
 function fakePatcherLLM() {
   return fakeLLM((system, user) => {
     if (!system.includes("Patcher")) return "The shop decides an order is paid at fulfill() and in its webhook; both trust the client, not PayPal's records.";
-    const flag = /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
+    const flag = /catalog price/.test(user) ? "priceFromCatalog" : /retried/.test(user) ? "idempotentCheckout"
+      : /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
     const fix = {
       verifyBeforeShip: "Call getOrder/getCapture and ship only for the amount PayPal actually captured.",
       verifyWebhookSig: "Call verify-webhook-signature on every event and drop anything that isn't SUCCESS.",
       dedupeCaptures: "Dedupe on the capture id so a replayed event credits the balance only once.",
+      priceFromCatalog: "Ignore any price in the agent's tool call and charge the catalog price for each item.",
+      idempotentCheckout: "Run one checkout per cart at a time and send the cart id as PayPal-Request-Id, so a retry gets the same order.",
     }[flag];
     return JSON.stringify({ flag, fix });
   });
@@ -148,7 +152,7 @@ export function createTamperServer({
       for (const settle of [...run.pending.values()]) settle(false);
     });
     // The dashboard also learns which model runs, so it never shows live Claude when it is off.
-    send({ agent: "engine", phase: "token", token: run.token, model: liveLLM ? "live" : "no-spend" });
+    send({ agent: "engine", phase: "token", token: run.token, model: liveLLM ? "live" : "no-spend", checks: CHECKS.length });
     if (denied) send({ agent: "engine", phase: "notice", note: denied });
     try {
       const out = await runAudit({

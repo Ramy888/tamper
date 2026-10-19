@@ -97,3 +97,41 @@ test("a shop that credits nothing is inconclusive for replay, not 'fixed'", asyn
   assert.equal(res.confirmed, false);
   assert.equal(res.inconclusive, true);
 });
+
+test("the audit runs six checks, the agent checkout two among them", () => {
+  assert.deepEqual(CHECKS.map((c) => c.id), ["amount_mismatch", "browser_trusted_paid", "unverified_webhook", "webhook_replay", "agent_price", "agent_retry"]);
+});
+
+// The agent checks: an AI assistant drives the shop through its agent tools. Each new check has
+// its own fix switch, and the switches that fix the older checks must not pass these.
+const agentPrice = CHECKS.find((c) => c.id === "agent_price");
+const agentRetry = CHECKS.find((c) => c.id === "agent_retry");
+
+test("agent_price: only taking prices from the catalog fixes it; reading PayPal's capture back does not", async () => {
+  const pp = makeFakePayPal();
+  const readBack = await agentPrice.run({ shop: makeShop({ verifyBeforeShip: true }, pp), pp, card: CARD });
+  assert.equal(readBack.confirmed, true, "PayPal really captured the assistant's $1.00, so a read-back still ships the $49 item");
+  const catalog = await agentPrice.run({ shop: makeShop({ priceFromCatalog: true }, pp), pp, card: CARD });
+  assert.equal(catalog.confirmed, false);
+  assert.match(catalog.truth, /PayPal captured \$49\.00/);
+});
+
+test("agent_retry: only one PayPal order per cart fixes it; de-duplicating webhooks does not", async () => {
+  const pp = makeFakePayPal();
+  const deduped = await agentRetry.run({ shop: makeShop({ dedupeCaptures: true }, pp), pp, card: CARD });
+  assert.equal(deduped.confirmed, true, "two separate orders both capture, whatever the webhook handler does");
+  assert.equal(deduped.proofIds.length, 2);
+  const fixed = await agentRetry.run({ shop: makeShop({ idempotentCheckout: true }, pp), pp, card: CARD });
+  assert.equal(fixed.confirmed, false);
+  assert.equal(fixed.proofIds.length, 1, "PayPal returned the same order for the retried request");
+});
+
+test("the shop's agent tools are shaped like WebMCP tools", () => {
+  const tools = makeShop({}, makeFakePayPal()).agentTools();
+  assert.deepEqual(tools.map((t) => t.name), ["search_products", "add_to_cart", "start_checkout", "fulfill_cart"]);
+  for (const t of tools) {
+    assert.ok(t.description.length > 10, `${t.name} describes itself`);
+    assert.equal(t.inputSchema.type, "object");
+    assert.equal(typeof t.execute, "function");
+  }
+});

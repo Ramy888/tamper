@@ -41,6 +41,17 @@ this (`test/engine.test.mjs`).
 | Browser-trusted "paid" | Marks an order paid without asking PayPal | `GET /v2/checkout/orders/{id}` |
 | Unverified webhook | Credits a "payment completed" event without checking it came from PayPal | `POST /v1/notifications/verify-webhook-signature` |
 | Webhook replay | Credits the same capture twice when an event is delivered again | capture amount vs. credited amount |
+| Agent price | An AI shopping assistant's tool call sets the price; the shop charges it instead of the catalog price | `GET /v2/payments/captures/{id}`: captured less than the catalog price of what shipped |
+| Agent retry | An assistant retries checkout and the shop opens a second PayPal order for the same cart | `GET /v2/checkout/orders/{id}`: two completed orders for one cart |
+
+The last two drive the shop the way an AI shopping assistant would, through agent tools shaped like
+WebMCP tools (`search_products`, `add_to_cart`, `start_checkout`, `fulfill_cart`, each with a name,
+description, input schema and `execute`). The Auditors call these tools directly; the shop does not
+register them with a browser's WebMCP API. The retry fix has two parts. The cart id goes to PayPal
+as `PayPal-Request-Id`, and PayPal returns the same order for a repeated key. PayPal's key alone
+isn't enough, though: in the sandbox, two calls with the same key at the same moment created two
+orders in 3 of 5 tries. So the shop also runs one checkout per cart at a time, and a call that
+arrives mid-checkout waits for the first.
 
 The replay check shows that verifying signatures is not enough. PayPal's genuine event is still
 genuine the second time, so only de-duplicating on the capture id stops a double credit.
@@ -81,10 +92,10 @@ dashboard says so, so the public page alone can't spend the key.
 ```
 lib/paypal.mjs    PayPal REST client (token, orders, captures, webhook verification)
 lib/judge.mjs     the Judge: reads PayPal's records, no AI
-lib/checks.mjs    the four checks
+lib/checks.mjs    the six checks
 lib/engine.mjs    Recon → Auditors → Judge → Patcher → (you) → Verifier
 lib/inbox.mjs     PayPal's webhook deliveries, for the replay check
-shop/shop.mjs     the demo shop, one implementation with three safety switches
+shop/shop.mjs     the demo shop and its agent tools, one implementation with five safety switches
 server.mjs        dashboard server (SSE), approval gate, /api/paypal/webhook
 public/index.html the dashboard
 ```

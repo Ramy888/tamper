@@ -5,6 +5,7 @@ import { createTamperServer } from "../server.mjs";
 import { MAX_BODY } from "../lib/inbox.mjs";
 import { makeFakePayPal } from "./helpers/fake-paypal.mjs";
 import { fakeLLM } from "../lib/llm.mjs";
+import { CHECKS } from "../lib/checks.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -159,6 +160,7 @@ test("a run announces its model: asking for live Claude without the passcode get
       const first = JSON.parse(new TextDecoder().decode(value).match(/^data: (.*)$/m)[1]);
       assert.equal(first.phase, "token");
       assert.equal(first.model, "no-spend", "the dashboard learns live Claude is off before the audit starts");
+      assert.equal(first.checks, CHECKS.length, "and how many checks the audit runs");
       await reader.cancel();
     },
     { pp: makeFakePayPal() },

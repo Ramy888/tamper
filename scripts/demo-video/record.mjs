@@ -131,7 +131,7 @@ if (LIVE) {
   await caption("Recon and the Patcher run on a live AI model");
   await clickSel("#live"); await sleep(2200);
 }
-await caption("The target: a demo shop with four common checkout mistakes. Waiting time is cut from this video");
+await caption("The target: a demo shop with six common checkout mistakes. Waiting time is cut from this video");
 await clickSel("#run"); await sleep(1800);
 
 // ---------- the audit, paced one event at a time ----------
@@ -140,25 +140,33 @@ const JUDGE = {
   amount_mismatch: "The Judge uses no AI. It reads PayPal's own capture: the shop shipped more than PayPal captured",
   browser_trusted_paid: "Marked paid on the browser's word. PayPal says the order was never captured",
   unverified_webhook: "A 'payment completed' event PayPal never sent was credited. PayPal's signature check: FAILURE",
+  // The agent checks quote the verdict itself, so the caption says exactly what PayPal showed.
+  agent_price: (e) => `The assistant sent its own price. Shop ${e.shopBelief}; ${e.truth}`,
+  agent_retry: (e) => `The assistant retried checkout. For ${e.shopBelief}, ${e.truth}`,
 };
 // The replay captions depend on what really ran: PayPal's signed delivery, or the labelled stand-in.
 const replayCaption = (signed) => signed ? "Delivered twice, the genuine event is credited twice. Checking signatures alone doesn't stop this" : "Delivered twice, the same event is credited twice (a labelled synthetic stand-in in this run)";
-const VERIFIED = [
-  "The Verifier rebuilds the shop with only that fix and re-runs the same check: the fix holds",
-  "Each fix is proven the same way: against PayPal's records, not the shop's",
-  "A wrong fix would fail here: the Verifier flips only the switch the Patcher named",
-];
+const VERIFIED = {
+  amount_mismatch: () => "The Verifier rebuilds the shop with only that fix and re-runs the same check: the fix holds",
+  browser_trusted_paid: () => "Each fix is proven the same way: against PayPal's records, not the shop's",
+  unverified_webhook: () => "A wrong fix would fail here: the Verifier flips only the switch the Patcher named",
+  agent_price: (e) => `With catalog prices: ${e.truth}`,
+  agent_retry: (e) => `With the cart as PayPal's request ID, the retry gets the same order: ${e.truth}`,
+};
+let totalChecks = 0, judged = 0, found = 0;
 let verifierSigned = false;
 let approvals = 0, verified = 0, replayNotes = 0, firstAuditor = true;
 for (;;) {
   const e = await nextEvent();
   if (!e || e.end) break;
   const { agent, phase } = e;
+  if (phase === "token") { totalChecks = e.checks || 4; continue; }
   if (agent === "recon" && phase === "done") {
     await caption(`Recon${claude} reads the shop's source and maps where it decides an order is paid`);
     await sleep(6500);
   } else if (agent === "auditor" && phase === "run") {
     if (firstAuditor) { await caption("Auditors drive real sandbox orders, the way a careless client would"); firstAuditor = false; }
+    if (e.check === "agent_price") await caption("Next, an AI shopping assistant uses the shop's agent tools, shaped like WebMCP tools");
     await sleep(2400);
   } else if (phase === "note" && agent === "auditor") {
     // Captions say "signed" only when the note does: a fallback run is labelled for what it is.
@@ -167,11 +175,14 @@ for (;;) {
     else await caption(/confirms it is genuine/.test(e.note) ? "The Judge asks PayPal: is this delivery genuine? Yes. Tamper delivers it again" : "No verified PayPal delivery arrived, so a labelled synthetic stand-in is replayed");
     await sleep(4200);
   } else if (agent === "judge" && phase === "verdict") {
+    judged++;
+    if (e.confirmed) found++;
+    const line = JUDGE[e.check];
     if (e.check === "webhook_replay") await caption(replayCaption(/PayPal-signed, verified/.test((e.proofIds || []).join(" "))));
-    else if (JUDGE[e.check]) await caption(JUDGE[e.check]);
+    else if (line) await caption(typeof line === "function" ? line(e) : line);
     await sleep(e.check === "amount_mismatch" ? 5600 : 4800);
-    if (e.check === "webhook_replay") {
-      await caption("Four findings, each with the PayPal order and capture IDs that prove it");
+    if (judged === totalChecks) {
+      await caption(`${found} findings, each with the PayPal order and capture IDs that prove it`);
       await hover("#findings .finding:last-child .ids"); await sleep(1600);
       await hover("#findings .finding:first-child .ids"); await sleep(2600);
       await shotClean("gallery-2-findings");
@@ -187,7 +198,7 @@ for (;;) {
     if (/^waiting/.test(e.note)) { await caption("The Verifier re-runs the replay check on the fixed shop, with a new PayPal-signed event"); await sleep(3600); }
     else { verifierSigned = /confirms it is genuine/.test(e.note); await sleep(2600); }
   } else if (agent === "verifier" && (phase === "result" || phase === "pending")) {
-    const holds = e.check === "webhook_replay" ? (verifierSigned ? "After the dedupe fix, PayPal's signed event is credited once" : "After the dedupe fix, the replayed event is credited once") : VERIFIED[verified];
+    const holds = e.check === "webhook_replay" ? (verifierSigned ? "After the dedupe fix, PayPal's signed event is credited once" : "After the dedupe fix, the replayed event is credited once") : (VERIFIED[e.check]?.(e) ?? "The fix holds against PayPal's records");
     await caption(phase === "result" && e.fixHolds ? holds : `Verifier: ${e.reason ?? "fix did not hold"}`);
     verified++;
     await sleep(4200);

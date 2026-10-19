@@ -10,24 +10,36 @@ export function makeFakePayPal({ onCapture } = {}) {
   const orders = new Map();
   const captures = new Map();
   const signed = new Set();
+  const byRequestId = new Map();
+
+  function newOrder(amount, { currency, card }) {
+    const orderId = id("ORD");
+    if (card) {
+      const capId = id("CAP");
+      captures.set(capId, { amount: { value: String(amount), currency_code: currency }, status: "COMPLETED" });
+      const order = {
+        id: orderId,
+        status: "COMPLETED",
+        purchase_units: [{ payments: { captures: [{ id: capId, amount: { value: String(amount), currency_code: currency } }] } }],
+      };
+      orders.set(orderId, order);
+      onCapture?.({ captureId: capId, orderId, amount: String(amount), currency });
+      return order;
+    }
+    const order = { id: orderId, status: "CREATED", purchase_units: [{ amount: { value: String(amount), currency_code: currency } }] };
+    orders.set(orderId, order);
+    return order;
+  }
 
   return {
-    async createOrder(amount, { currency = "USD", card } = {}) {
-      const orderId = id("ORD");
-      if (card) {
-        const capId = id("CAP");
-        captures.set(capId, { amount: { value: String(amount), currency_code: currency }, status: "COMPLETED" });
-        const order = {
-          id: orderId,
-          status: "COMPLETED",
-          purchase_units: [{ payments: { captures: [{ id: capId, amount: { value: String(amount), currency_code: currency } }] } }],
-        };
-        orders.set(orderId, order);
-        onCapture?.({ captureId: capId, orderId, amount: String(amount), currency });
-        return order;
-      }
-      const order = { id: orderId, status: "CREATED", purchase_units: [{ amount: { value: String(amount), currency_code: currency } }] };
-      orders.set(orderId, order);
+    // PayPal's idempotency, as the sandbox does it: a repeated PayPal-Request-Id gets the original
+    // order back, but two calls with the same key at the same moment can both create an order
+    // (3 races out of 5 did in the sandbox, Oct 19), so only a key PayPal has finished counts.
+    async createOrder(amount, { currency = "USD", card, requestId } = {}) {
+      if (requestId && byRequestId.has(requestId)) return byRequestId.get(requestId);
+      await new Promise((r) => setTimeout(r, 1)); // PayPal processing the payment
+      const order = newOrder(amount, { currency, card });
+      if (requestId && !byRequestId.has(requestId)) byRequestId.set(requestId, order);
       return order;
     },
     async getOrder(orderId) {

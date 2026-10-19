@@ -11,7 +11,8 @@ const CARD = { number: "4111111111111111", expiry: "2030-12", security_code: "12
 // A Patcher that names the correct flag for each flaw (mirrors each check's fixFlag).
 const goodPatcher = fakeLLM((system, user) => {
   if (!system.includes("Patcher")) return "The shop trusts the client at fulfillment and in its webhook.";
-  const flag = /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
+  const flag = /catalog price/.test(user) ? "priceFromCatalog" : /retried/.test(user) ? "idempotentCheckout"
+    : /client-reported|browser's say-so/.test(user) ? "verifyBeforeShip" : /verify-webhook-signature/.test(user) ? "verifyWebhookSig" : "dedupeCaptures";
   return JSON.stringify({ flag, fix: "apply " + flag });
 });
 

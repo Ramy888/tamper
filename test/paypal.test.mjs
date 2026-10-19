@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { verifyWebhook } from "../lib/paypal.mjs";
+import { verifyWebhook, createOrder, SANDBOX_CARD } from "../lib/paypal.mjs";
 
 const H = {
   "paypal-auth-algo": "SHA256withRSA",
@@ -30,6 +30,26 @@ test("verifyWebhook sends the delivered event byte-for-byte", async () => {
     const parsed = JSON.parse(body);
     assert.equal(parsed.webhook_id, "WH-ID");
     assert.equal(parsed.transmission_id, "tx-1");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// The agent-retry fix: the cart's own id goes to PayPal as the idempotency key, so a retried
+// checkout gets PayPal's same order back instead of a second charge.
+test("createOrder sends the request id it is given", async () => {
+  Object.assign(process.env, { PAYPAL_CLIENT_ID: "id", PAYPAL_CLIENT_SECRET: "secret" });
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    sent.push({ url: String(url), headers: init.headers });
+    const json = String(url).includes("oauth2") ? { access_token: "t", expires_in: 3600 } : { id: "ORD-1", status: "COMPLETED" };
+    return new Response(JSON.stringify(json), { status: 200 });
+  };
+  try {
+    await createOrder("5.00", { card: SANDBOX_CARD, requestId: "tamper-cart-1" });
+    const order = sent.find((s) => s.url.endsWith("/v2/checkout/orders"));
+    assert.equal(order.headers["PayPal-Request-Id"], "tamper-cart-1");
   } finally {
     globalThis.fetch = realFetch;
   }
